@@ -11,35 +11,38 @@ all: build
 phony += build server authtool client cli libsdk fsck fdstore preload bcache blobstore
 build: server authtool client cli libsdk fsck fdstore preload bcache blobstore
 
-server: 
+server:
 	@build/build.sh server $(GOMOD)
 
 blobstore:
 	@build/build.sh blobstore $(GOMOD)
 
-client: 
+client:
 	@build/build.sh client $(GOMOD)
 
-authtool: 
+authtool:
 	@build/build.sh authtool $(GOMOD)
 
-cli: 
+cli:
 	@build/build.sh cli $(GOMOD)
 
-fsck: 
+fsck:
 	@build/build.sh fsck $(GOMOD)
 
-libsdk: 
+libsdk:
 	@build/build.sh libsdk $(GOMOD)
 
-fdstore: 
+fdstore:
 	@build/build.sh fdstore $(GOMOD)
 
-preload: 
+preload:
 	@build/build.sh preload $(GOMOD)
 
-bcache: 
+bcache:
 	@build/build.sh bcache $(GOMOD)
+
+snapshot:
+	@build/build.sh snapshot $(GOMOD)
 
 phony += clean
 clean:

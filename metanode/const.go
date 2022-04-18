@@ -157,6 +157,11 @@ const (
 
 	//quota
 	opFSMCreateInodeQuota
+
+	opFSMSentToChanV1
+	opFSMVersionOp
+	opFSMExtentSplit
+	opFSMDelVer
 )
 
 var (
