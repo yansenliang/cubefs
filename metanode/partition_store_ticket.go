@@ -16,6 +16,7 @@ package metanode
 
 import (
 	"encoding/binary"
+	"github.com/cubefs/cubefs/proto"
 	"sync/atomic"
 	"time"
 
@@ -39,7 +40,7 @@ type storeMsg struct {
 	//txRollbackInodes   map[uint64]*TxRollbackInode
 	txRbDentryTree *BTree
 	//txRollbackDentries map[string]*TxRollbackDentry
-
+	multiVerList []*proto.VolVersionInfo
 }
 
 func (mp *metaPartition) startSchedule(curIndex uint64) {
