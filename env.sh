@@ -15,3 +15,4 @@ CURRENT_DIR=`pwd`
 export CGO_CFLAGS="-I${CURRENT_DIR}/depends/snappy-1.1.7 -I${CURRENT_DIR}/depends/rocksdb-5.9.2/include"
 export CGO_FFLAGS="-g -O2"
 export CGO_LDFLAGS="-lstdc++ -lm -lz -lbz2 -llz4 -lzstd -L${CURRENT_DIR}/build/out/snappy -lsnappy -L${CURRENT_DIR}/build/out/rocksdb -lrocksdb -ldl"
+
