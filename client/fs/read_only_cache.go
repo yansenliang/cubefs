@@ -8,16 +8,10 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/cubefs/cubefs/proto"
 	"github.com/cubefs/cubefs/util/log"
-)
-
-type ReadOnlyCacheDataType int8
-
-const (
-	DATA_ATTR   ReadOnlyCacheDataType = 1 // data is ATTR
-	DATA_DENTRY ReadOnlyCacheDataType = 2 // data is dentry
 )
 
 type addressPointer struct {
@@ -26,31 +20,15 @@ type addressPointer struct {
 }
 
 type persistentAttr struct {
-	Attr addressPointer //  attr address
+	Addr addressPointer //  attr address
 }
 
 type persistentDentry struct {
-	DentryHead addressPointer // dentry address
-	DentryTail addressPointer // dentry address
+	DentryHead  addressPointer    // dentry address
+	EntryBuffer map[string]uint64 // buffer entry until all of the dir's the entry are cached
+	IsPersist   bool              // flag used to identify whether it is persisted to the file
 }
 
-type Dentry struct {
-	Name string
-	Ino  uint64
-}
-type Attr struct {
-	Inode      uint64
-	Mode       uint32
-	Nlink      uint32
-	Size       uint64
-	Uid        uint32
-	Gid        uint32
-	Generation uint64
-	ModifyTime int64
-	CreateTime int64
-	AccessTime int64
-	Target     []byte
-}
 type persistentFileHandler struct {
 	DataFile    *os.File
 	EndPosition int64
@@ -111,7 +89,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 		}
 		// skip the real attr , just read the next address
 		i = address.Offset + int64(address.Size)
-		persistent_meta_cache.Inode2PersistAttr[ino] = &persistentAttr{Attr: *address}
+		persistent_meta_cache.Inode2PersistAttr[ino] = &persistentAttr{Addr: *address}
 	}
 	return nil
 }
@@ -149,118 +127,138 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) PutAttr(attr *proto.InodeInfo) error {
-	persistent_attr, ok := persistent_meta_cache.Inode2PersistAttr[attr.Inode]
-	if !ok {
-		bytes_buf := &bytes.Buffer{}
-		err := binary.Write(bytes_buf, binary.BigEndian, *persistent_attr)
-		if err != nil {
-			log.LogErrorf("[ReadOnlyCache][PutAttr] : transfer attr to bytes fail, err: %s, ino: %d", err.Error(), attr.Inode)
-			return err
+	if _, ok := persistent_meta_cache.Inode2PersistAttr[attr.Inode]; !ok {
+		persistent_attr := &persistentAttr{
+			Addr: addressPointer{},
 		}
-		persistent_attr_addr, err := persistent_meta_cache.WriteFile(DATA_ATTR, bytes_buf.Bytes())
+		err := persistent_meta_cache.WriteAttrToFile(attr, persistent_attr)
 		if err != nil {
 			log.LogErrorf("[ReadOnlyCache][PutAttr] : persist attr to file fail, err: %s, ino: %d", err.Error(), attr.Inode)
 			return err
 		}
-		persistent_meta_cache.Inode2PersistAttr[attr.Inode] = &persistentAttr{
-			Attr: *persistent_attr_addr[0],
-		}
+		persistent_meta_cache.Inode2PersistAttr[attr.Inode] = persistent_attr
 	}
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, dentry map[string]uint64) error {
-	bytes_buf := &bytes.Buffer{}
-	err := binary.Write(bytes_buf, binary.BigEndian, dentry)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][PutDentry] : transfer dentry to bytes fail, err: %s, ino: %d", err.Error(), parentInode)
-		return err
-	}
-	persistent_dentry_addrs, err := persistent_meta_cache.WriteFile(DATA_DENTRY, bytes_buf.Bytes())
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry to file fail, err: %s, ino: %d", err.Error(), parentInode)
-		return err
-	}
-	persistent_meta_cache.Inode2PersistDentry[parentInode] = &persistentDentry{
-		DentryHead: *persistent_dentry_addrs[0],
-		DentryTail: *persistent_dentry_addrs[1],
-	}
-	return nil
-}
-
-func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64) (*proto.InodeInfo, error) {
+func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *proto.InodeInfo) error {
 	persistent_attr, ok := persistent_meta_cache.Inode2PersistAttr[ino]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("inode %d is not exist in read only cache", ino))
+		return errors.New(fmt.Sprintf("inode %d is not exist in read only cache", ino))
 	}
-	attr_bytes, err := persistent_meta_cache.ReadFile(DATA_ATTR, &persistent_attr.Attr)
+	err := persistent_meta_cache.ReadAttrFromFile(&persistent_attr.Addr, inode_info)
 	if err != nil {
 		log.LogErrorf("[ReadOnlyCache][GetAttr] : get attr from file fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
+		return err
 	}
-	bytes_buf := &bytes.Buffer{}
-	_, err = bytes_buf.Read(attr_bytes)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][GetAttr] : bytes buffer read data from buf fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
-	}
-	inode_info := &proto.InodeInfo{}
-	err = binary.Read(bytes_buf, binary.BigEndian, inode_info)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][GetAttr] : parse bytes buffe data to attr fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
-	}
-	return inode_info, nil
+	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64, names []string) (map[string]uint64, error) {
-	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
+func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, dentries map[string]uint64, is_end bool) error {
+	var (
+		persistent_dentry *persistentDentry
+		ok                bool
+	)
+
+	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[parentInode]
 	if !ok {
-		return nil, errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
+		persistent_dentry = &persistentDentry{
+			IsPersist: false,
+		}
+		persistent_meta_cache.Inode2PersistDentry[parentInode] = persistent_dentry
 	}
-	dentry_bytes, err := persistent_meta_cache.ReadFile(DATA_DENTRY, &persistent_dentry.DentryHead)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
-	}
-	bytes_buf := &bytes.Buffer{}
-	_, err = bytes_buf.Read(dentry_bytes)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][GetDentry] : bytes buffer read data from buf fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
-	}
-	dentry := &map[string]uint64{}
-	err = binary.Read(bytes_buf, binary.BigEndian, dentry)
-	if err != nil {
-		log.LogErrorf("[ReadOnlyCache][GetDentry] : parse bytes buffe data to dentry fail, err : %s, ino: %d", err.Error(), ino)
-		return nil, err
-	}
-	res := map[string]uint64{}
-	for _, name := range names {
-		if inode, ok := (*dentry)[name]; ok {
-			res[name] = inode
-		} else {
-			log.LogInfof("[ReadOnlyCache][GetDentry] : inode is not cache in dentry. parentIno: %d, name: %d", ino, name)
+
+	// add new dentry to entry buffer
+	for name, ino := range dentries {
+		if _, ok := persistent_dentry.EntryBuffer[name]; !ok {
+			persistent_dentry.EntryBuffer[name] = ino
 		}
 	}
-	return res, nil
+
+	if is_end {
+		err := persistent_meta_cache.WriteDentryToFile(parentInode, persistent_dentry)
+		if err != nil {
+			log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry to file fail, err: %s, ino: %d", err.Error(), parentInode)
+			return err
+		}
+		persistent_dentry.IsPersist = true
+		// clear entry buffer in memory after persisted
+		for k := range persistent_dentry.EntryBuffer {
+			delete(persistent_dentry.EntryBuffer, k)
+		}
+	}
+	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) ReadAttrFromFile(address *addressPointer, attr *Attr) error {
+func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64, names []string, res map[string]uint64) error {
+	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
+	if !ok {
+		return errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
+	}
+	// try to find in persisted entry file if it has not been persisted
+	var all_entries map[string]uint64
+	if persistent_dentry.IsPersist {
+		err := persistent_meta_cache.ReadDentryFromFile(&persistent_dentry.DentryHead, all_entries)
+		if err != nil {
+			log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
+			return err
+		}
+	} else {
+		// try to find in EntryBuffer if it has not been persisted
+		all_entries = persistent_dentry.EntryBuffer
+	}
+
+	for _, name := range names {
+		if ino, ok := all_entries[name]; ok {
+			res[name] = ino
+		}
+	}
+	log.LogInfo("[ReadOnlyCache][GetDentry] : cache request num : %d, cache hit num: %d", len(names), len(res))
+	return nil
+}
+
+func (persistent_meta_cache *ReadOnlyMetaCache) ReadAttrFromFile(address *addressPointer, attr *proto.InodeInfo) error {
 	buf := make([]byte, address.Size)
 	_, err := persistent_meta_cache.AttrBinaryFile.DataFile.ReadAt(buf, address.Offset)
 	if err != nil && err != io.EOF {
 		return err
 	}
 	// unmarshal the data
-	if err := attr.AttrUnmarshal(buf); err != nil {
+	if err := AttrUnmarshal(buf, attr); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][ReadAttrFromFile] unmarshal Attr fail")
 		return err
 	}
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addressPointer, entries *[]Dentry) error {
+func (persistent_meta_cache *ReadOnlyMetaCache) WriteAttrToFile(attr *proto.InodeInfo, address *persistentAttr) error {
+	bytes_buf := &bytes.Buffer{}
+	bs, err := AttrMarshal(attr)
+	if err != nil {
+		return err
+	}
+	address.Addr.Size = uint64(len(bs))
+	address.Addr.Offset = persistent_meta_cache.AttrBinaryFile.EndPosition + 16 // 16 bytes for address
+	if err := binary.Write(bytes_buf, binary.BigEndian, &address.Addr.Offset); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing offset %d to bytes buffer fail", address.Addr.Offset)
+		return err
+	}
+	if err := binary.Write(bytes_buf, binary.BigEndian, &address.Addr.Size); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing size %d to bytes buffer fail", address.Addr.Size)
+		return err
+	}
+	bytes_buf.Write(bs)
+	var length int
+	length, err = persistent_meta_cache.AttrBinaryFile.DataFile.WriteAt(bytes_buf.Bytes(), int64(persistent_meta_cache.AttrBinaryFile.EndPosition))
+	if err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing inode %d to binary file fail", attr.Inode)
+		return err
+	}
+	persistent_meta_cache.AttrBinaryFile.EndPosition += int64(length)
+	return nil
+}
+
+func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addressPointer, entries map[string]uint64) error {
 	bytes_buf := &bytes.Buffer{}
 	buf := make([]byte, address.Size)
 	_, err := persistent_meta_cache.DentryBinaryFile.DataFile.ReadAt(buf, address.Offset)
@@ -285,48 +283,21 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addr
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) WriteAttrToFile(attr *Attr, address *persistentAttr) error {
-	bytes_buf := &bytes.Buffer{}
-	bs, err := attr.AttrMarshal()
-	if err != nil {
-		return err
-	}
-	address.Attr.Size = uint64(len(bs))
-	address.Attr.Offset = persistent_meta_cache.AttrBinaryFile.EndPosition + 16 // 16 bytes for address
-	if err := binary.Write(bytes_buf, binary.BigEndian, &address.Attr.Offset); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing offset %d to bytes buffer fail", address.Attr.Offset)
-		return err
-	}
-	if err := binary.Write(bytes_buf, binary.BigEndian, &address.Attr.Size); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing size %d to bytes buffer fail", address.Attr.Size)
-		return err
-	}
-	bytes_buf.Write(bs)
-	var length int
-	length, err = persistent_meta_cache.AttrBinaryFile.DataFile.WriteAt(bytes_buf.Bytes(), int64(persistent_meta_cache.AttrBinaryFile.EndPosition))
-	if err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][WriteAttrToFile] writing inode %d to binary file fail", attr.Inode)
-		return err
-	}
-	persistent_meta_cache.AttrBinaryFile.EndPosition += int64(length)
-	return nil
-}
-
 // write all dentry of one directory to the DentryFile
-func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint64, entries *[]Dentry, address *persistentDentry) error {
+func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint64, persistent_dentry *persistentDentry) error {
 	bytes_buf := &bytes.Buffer{}
-	bs, err := DentryBatchMarshal(entries)
+	bs, err := DentryBatchMarshal(persistent_dentry.EntryBuffer)
 	if err != nil {
 		return err
 	}
-	address.DentryHead.Size = uint64(len(bs) + 8)                                       // 8 bytes for parentIno
-	address.DentryHead.Offset = persistent_meta_cache.DentryBinaryFile.EndPosition + 16 // 16 bytes for address
-	if err := binary.Write(bytes_buf, binary.BigEndian, &address.DentryHead.Offset); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][WriteDentryToFile] writing offset %d to bytes buffer fail", address.DentryHead.Offset)
+	persistent_dentry.DentryHead.Size = uint64(len(bs) + 8)                                       // 8 bytes for parentIno
+	persistent_dentry.DentryHead.Offset = persistent_meta_cache.DentryBinaryFile.EndPosition + 16 // 16 bytes for address
+	if err := binary.Write(bytes_buf, binary.BigEndian, &persistent_dentry.DentryHead.Offset); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][WriteDentryToFile] writing offset %d to bytes buffer fail", persistent_dentry.DentryHead.Offset)
 		return err
 	}
-	if err := binary.Write(bytes_buf, binary.BigEndian, &address.DentryHead.Size); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][WriteDentryToFile] writing size %d to bytes buffer fail", address.DentryHead.Size)
+	if err := binary.Write(bytes_buf, binary.BigEndian, &persistent_dentry.DentryHead.Size); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][WriteDentryToFile] writing size %d to bytes buffer fail", persistent_dentry.DentryHead.Size)
 		return err
 	}
 	if err := binary.Write(bytes_buf, binary.BigEndian, &parentIno); err != nil {
@@ -344,13 +315,13 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 	return nil
 }
 
-func DentryBatchMarshal(entries *[]Dentry) ([]byte, error) {
+func DentryBatchMarshal(entries map[string]uint64) ([]byte, error) {
 	bytes_buf := bytes.NewBuffer(make([]byte, 0))
 	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(*entries))); err != nil {
 		return nil, err
 	}
-	for _, v := range *entries {
-		bs, err := v.DentryMarshal()
+	for k, v := range *entries {
+		bs, err := DentryMarshal(k, v)
 		if err != nil {
 			log.LogErrorf("ReadOnlyMetaCache][DentryBatchMarshal] marshal entry[%s, %d] fail", v.Name, v.Ino)
 			return nil, err
@@ -365,7 +336,8 @@ func DentryBatchMarshal(entries *[]Dentry) ([]byte, error) {
 	}
 	return bytes_buf.Bytes(), nil
 }
-func DentryBatchUnMarshal(raw []byte, entries *[]Dentry) error {
+
+func DentryBatchUnMarshal(raw []byte, entries map[string]uint64) error {
 	bytes_buf := bytes.NewBuffer(raw)
 	var batchLen uint32
 	if err := binary.Read(bytes_buf, binary.BigEndian, &batchLen); err != nil {
@@ -381,25 +353,28 @@ func DentryBatchUnMarshal(raw []byte, entries *[]Dentry) error {
 		if _, err := bytes_buf.Read(data); err != nil {
 			return err
 		}
-		den := &Dentry{}
-		if err := den.DentryUnmarshal(data); err != nil {
+		var (
+			name string
+			ino  uint64
+		)
+		if name, ino, err = DentryUnmarshal(data); err != nil {
 			log.LogErrorf("ReadOnlyMetaCache][DentryBatchUnMarshal] unmarsal %d entry fail ", i)
 			return err
 		}
-		*entries = append(*entries, *den)
+		entries[name] = ino
 	}
 	return nil
 }
 
 // DentryMarshal marshals the dentry into a byte array
-func (d *Dentry) DentryMarshal() ([]byte, error) {
+func DentryMarshal(name string, ino uint64) ([]byte, error) {
 	bytes_buf := bytes.NewBuffer(make([]byte, 0))
-	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(d.Name))); err != nil {
+	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(name))); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write len of entry %s to byte buffer fail", d.Name)
 		return nil, err
 	}
-	bytes_buf.Write([]byte(d.Name))
-	if err := binary.Write(bytes_buf, binary.BigEndian, &d.Ino); err != nil {
+	bytes_buf.Write([]byte(name))
+	if err := binary.Write(bytes_buf, binary.BigEndian, &ino); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write entry ino %d to byte buffer fail", d.Ino)
 		return nil, err
 	}
@@ -407,24 +382,25 @@ func (d *Dentry) DentryMarshal() ([]byte, error) {
 }
 
 // DentryUnmarshal unmarshals one byte array into the dentry
-func (d *Dentry) DentryUnmarshal(raw []byte) error {
+func DentryUnmarshal(raw []byte) (string, uint64, error) {
 	bytes_buf := bytes.NewBuffer(raw)
 	var nameLen uint32
 	if err := binary.Read(bytes_buf, binary.BigEndian, &nameLen); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] parse byte buffer to len of entry name fail")
-		return err
+		return "", 0, err
 	}
 	data := make([]byte, int(nameLen))
 	bytes_buf.Read(data)
-	d.Name = string(data)
-	if err := binary.Read(bytes_buf, binary.BigEndian, &d.Ino); err != nil {
+	name := string(data)
+	var ino uint64
+	if err := binary.Read(bytes_buf, binary.BigEndian, &ino); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] parse byte buffer to entry ino fail")
-		return err
+		return "", 0, err
 	}
-	return nil
+	return name, ino, nil
 }
 
-func (a *Attr) AttrMarshal() ([]byte, error) {
+func AttrMarshal(a *proto.InodeInfo) ([]byte, error) {
 	var err error
 	buff := bytes.NewBuffer(make([]byte, 0, 128))
 	buff.Grow(64)
@@ -449,13 +425,13 @@ func (a *Attr) AttrMarshal() ([]byte, error) {
 	if err = binary.Write(buff, binary.BigEndian, &a.Generation); err != nil {
 		panic(err)
 	}
-	if err = binary.Write(buff, binary.BigEndian, &a.CreateTime); err != nil {
+	if err = binary.Write(buff, binary.BigEndian, a.CreateTime.Unix()); err != nil {
 		panic(err)
 	}
-	if err = binary.Write(buff, binary.BigEndian, &a.AccessTime); err != nil {
+	if err = binary.Write(buff, binary.BigEndian, a.AccessTime.Unix()); err != nil {
 		panic(err)
 	}
-	if err = binary.Write(buff, binary.BigEndian, &a.ModifyTime); err != nil {
+	if err = binary.Write(buff, binary.BigEndian, a.ModifyTime.Unix()); err != nil {
 		panic(err)
 	}
 	// write Target
@@ -469,7 +445,7 @@ func (a *Attr) AttrMarshal() ([]byte, error) {
 	return buff.Bytes(), nil
 }
 
-func (a *Attr) AttrUnmarshal(raw []byte) error {
+func AttrUnmarshal(raw []byte, a *proto.InodeInfo) error {
 	buff := bytes.NewBuffer(raw)
 	var err error
 	if err = binary.Read(buff, binary.BigEndian, &a.Inode); err != nil {
@@ -493,15 +469,26 @@ func (a *Attr) AttrUnmarshal(raw []byte) error {
 	if err = binary.Read(buff, binary.BigEndian, &a.Generation); err != nil {
 		return err
 	}
-	if err = binary.Read(buff, binary.BigEndian, &a.CreateTime); err != nil {
+
+	var time_unix int64
+	err = binary.Read(buff, binary.BigEndian, &time_unix)
+	if err != nil {
 		return err
 	}
-	if err = binary.Read(buff, binary.BigEndian, &a.AccessTime); err != nil {
+	a.CreateTime = time.Unix(time_unix, 0)
+
+	err = binary.Read(buff, binary.BigEndian, &time_unix)
+	if err != nil {
 		return err
 	}
-	if err = binary.Read(buff, binary.BigEndian, &a.ModifyTime); err != nil {
+	a.AccessTime = time.Unix(time_unix, 0)
+
+	err = binary.Read(buff, binary.BigEndian, time_unix)
+	if err != nil {
 		return err
 	}
+	a.ModifyTime = time.Unix(time_unix, 0)
+
 	// read Target
 	targetSize := uint32(0)
 	if err = binary.Read(buff, binary.BigEndian, &targetSize); err != nil {
