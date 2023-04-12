@@ -507,6 +507,11 @@ func (td *TxUpdateDentry) Unmarshal(raw []byte) (err error) {
 	return
 }
 
+type DentryEx struct {
+	*Dentry
+	OldIno uint64
+}
+
 type DentryBatch []*Dentry
 
 // todo(leon chang), buffer need alloc first before and write directly consider the space and performance
@@ -530,7 +535,7 @@ func (d *Dentry) Marshal() (result []byte, err error) {
 		return
 	}
 	if err = binary.Write(buff, binary.BigEndian, valLen); err != nil {
-		return nil, err
+		return
 	}
 	if _, err = buff.Write(valBytes); err != nil {
 		return
