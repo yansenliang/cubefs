@@ -23,10 +23,15 @@ type persistentAttr struct {
 	Addr addressPointer //  attr address
 }
 
+type dentryData struct {
+	Type uint32
+	Ino  uint64
+}
+
 type persistentDentry struct {
-	DentryHead  addressPointer    // dentry address
-	EntryBuffer map[string]uint64 // buffer entry until all of the dir's the entry are cached
-	IsPersist   bool              // flag used to identify whether it is persisted to the file
+	DentryHead  addressPointer        // dentry address
+	EntryBuffer map[string]dentryData // buffer entry until all of the dir's the entry are cached
+	IsPersist   bool                  // flag used to identify whether it is persisted to the file
 }
 
 type persistentFileHandler struct {
@@ -154,7 +159,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, dentries map[string]uint64, is_end bool) error {
+func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, dentries []proto.Dentry, is_end bool) error {
 	var (
 		persistent_dentry *persistentDentry
 		ok                bool
@@ -169,9 +174,12 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 	}
 
 	// add new dentry to entry buffer
-	for name, ino := range dentries {
-		if _, ok := persistent_dentry.EntryBuffer[name]; !ok {
-			persistent_dentry.EntryBuffer[name] = ino
+	for _, dentry := range dentries {
+		if _, ok := persistent_dentry.EntryBuffer[dentry.Name]; !ok {
+			persistent_dentry.EntryBuffer[dentry.Name] = dentryData{
+				Type: dentry.Type,
+				Ino:  dentry.Inode,
+			}
 		}
 	}
 
@@ -190,30 +198,56 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64, names []string, res map[string]uint64) error {
-	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
+func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) (uint64, error) {
+	var (
+		persistent_dentry *persistentDentry
+		dentry            dentryData
+		ok                bool
+	)
+	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[ino]
 	if !ok {
-		return errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
-	}
-	// try to find in persisted entry file if it has not been persisted
-	var all_entries map[string]uint64
-	if persistent_dentry.IsPersist {
-		err := persistent_meta_cache.ReadDentryFromFile(&persistent_dentry.DentryHead, all_entries)
-		if err != nil {
-			log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
-			return err
-		}
-	} else {
-		// try to find in EntryBuffer if it has not been persisted
-		all_entries = persistent_dentry.EntryBuffer
+		return 0, errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
 	}
 
-	for _, name := range names {
-		if ino, ok := all_entries[name]; ok {
-			res[name] = ino
-		}
+	// try to find in EntryBuffer if it has not been persisted
+	if dentry, ok = persistent_dentry.EntryBuffer[name]; ok {
+		return dentry.Ino, nil
 	}
-	log.LogInfo("[ReadOnlyCache][GetDentry] : cache request num : %d, cache hit num: %d", len(names), len(res))
+
+	var all_entries map[string]dentryData
+	err := persistent_meta_cache.ReadDentryFromFile(&persistent_dentry.DentryHead, all_entries)
+	if err != nil {
+		log.LogErrorf("[ReadOnlyCache][Lookup] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
+		return 0, err
+	}
+	dentry, ok = all_entries[name]
+	if !ok {
+		return 0, errors.New(fmt.Sprintf("%s is not found in dentry cache of inode %d in read only cache", name, ino))
+	}
+	return dentry.Ino, nil
+}
+
+func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64, res []proto.Dentry) error {
+	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
+	// don'try to find in EntryBuffer if it has not been persisted, because it may not return complete entries in ino
+	if !ok || !persistent_dentry.IsPersist {
+		return errors.New(fmt.Sprintf("dentry cache of inode %d is not exist completely in read only cache", ino))
+	}
+
+	var all_entries map[string]dentryData
+	err := persistent_meta_cache.ReadDentryFromFile(&persistent_dentry.DentryHead, all_entries)
+	if err != nil {
+		log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
+		return err
+	}
+	for name, dentry := range all_entries {
+		res = append(res, proto.Dentry{
+			Name:  name,
+			Type:  dentry.Type,
+			Inode: dentry.Ino,
+		})
+	}
+	log.LogInfo("[ReadOnlyCache][GetDentry] : num of entry in %d is %d", ino, len(res))
 	return nil
 }
 
@@ -258,7 +292,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteAttrToFile(attr *proto.Inod
 	return nil
 }
 
-func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addressPointer, entries map[string]uint64) error {
+func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addressPointer, entries map[string]dentryData) error {
 	bytes_buf := &bytes.Buffer{}
 	buf := make([]byte, address.Size)
 	_, err := persistent_meta_cache.DentryBinaryFile.DataFile.ReadAt(buf, address.Offset)
