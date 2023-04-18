@@ -349,15 +349,15 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 	return nil
 }
 
-func DentryBatchMarshal(entries map[string]uint64) ([]byte, error) {
+func DentryBatchMarshal(entries map[string]dentryData) ([]byte, error) {
 	bytes_buf := bytes.NewBuffer(make([]byte, 0))
-	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(*entries))); err != nil {
+	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(entries))); err != nil {
 		return nil, err
 	}
-	for k, v := range *entries {
+	for k, v := range entries {
 		bs, err := DentryMarshal(k, v)
 		if err != nil {
-			log.LogErrorf("ReadOnlyMetaCache][DentryBatchMarshal] marshal entry[%s, %d] fail", v.Name, v.Ino)
+			log.LogErrorf("ReadOnlyMetaCache][DentryBatchMarshal] marshal entry[%s, %d, %d] fail", k, v.Ino, v.Type)
 			return nil, err
 		}
 		if err = binary.Write(bytes_buf, binary.BigEndian, uint32(len(bs))); err != nil {
@@ -371,7 +371,7 @@ func DentryBatchMarshal(entries map[string]uint64) ([]byte, error) {
 	return bytes_buf.Bytes(), nil
 }
 
-func DentryBatchUnMarshal(raw []byte, entries map[string]uint64) error {
+func DentryBatchUnMarshal(raw []byte, entries map[string]dentryData) error {
 	bytes_buf := bytes.NewBuffer(raw)
 	var batchLen uint32
 	if err := binary.Read(bytes_buf, binary.BigEndian, &batchLen); err != nil {
@@ -379,59 +379,68 @@ func DentryBatchUnMarshal(raw []byte, entries map[string]uint64) error {
 		return err
 	}
 	var dataLen uint32
+	var err error
 	for i := 0; i < int(batchLen); i++ {
-		if err := binary.Read(bytes_buf, binary.BigEndian, &dataLen); err != nil {
+		if err = binary.Read(bytes_buf, binary.BigEndian, &dataLen); err != nil {
 			return err
 		}
 		data := make([]byte, int(dataLen))
-		if _, err := bytes_buf.Read(data); err != nil {
+		if _, err = bytes_buf.Read(data); err != nil {
 			return err
 		}
 		var (
-			name string
-			ino  uint64
+			name        string
+			dentry_data dentryData
 		)
-		if name, ino, err = DentryUnmarshal(data); err != nil {
+		if name, dentry_data, err = DentryUnmarshal(data); err != nil {
 			log.LogErrorf("ReadOnlyMetaCache][DentryBatchUnMarshal] unmarsal %d entry fail ", i)
 			return err
 		}
-		entries[name] = ino
+		entries[name] = dentry_data
 	}
 	return nil
 }
 
 // DentryMarshal marshals the dentry into a byte array
-func DentryMarshal(name string, ino uint64) ([]byte, error) {
+func DentryMarshal(name string, data dentryData) ([]byte, error) {
 	bytes_buf := bytes.NewBuffer(make([]byte, 0))
 	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(name))); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write len of entry %s to byte buffer fail", d.Name)
+		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write len of entry %s to byte buffer fail", name)
 		return nil, err
 	}
 	bytes_buf.Write([]byte(name))
-	if err := binary.Write(bytes_buf, binary.BigEndian, &ino); err != nil {
-		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write entry ino %d to byte buffer fail", d.Ino)
+	if err := binary.Write(bytes_buf, binary.BigEndian, &data.Ino); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write the ino of entry[%s, %d, %d] to byte buffer fail", name, data.Ino, data.Type)
+		return nil, err
+	}
+	if err := binary.Write(bytes_buf, binary.BigEndian, &data.Type); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] write the type of entry[%s, %d, %d] to byte buffer fail", name, data.Ino, data.Type)
 		return nil, err
 	}
 	return bytes_buf.Bytes(), nil
 }
 
 // DentryUnmarshal unmarshals one byte array into the dentry
-func DentryUnmarshal(raw []byte) (string, uint64, error) {
+func DentryUnmarshal(raw []byte) (string, dentryData, error) {
 	bytes_buf := bytes.NewBuffer(raw)
 	var nameLen uint32
+	var dentry_data dentryData
 	if err := binary.Read(bytes_buf, binary.BigEndian, &nameLen); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] parse byte buffer to len of entry name fail")
-		return "", 0, err
+		return "", dentry_data, err
 	}
 	data := make([]byte, int(nameLen))
 	bytes_buf.Read(data)
 	name := string(data)
-	var ino uint64
-	if err := binary.Read(bytes_buf, binary.BigEndian, &ino); err != nil {
+	if err := binary.Read(bytes_buf, binary.BigEndian, &dentry_data.Ino); err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] parse byte buffer to entry ino fail")
-		return "", 0, err
+		return name, dentry_data, err
 	}
-	return name, ino, nil
+	if err := binary.Read(bytes_buf, binary.BigEndian, &dentry_data.Type); err != nil {
+		log.LogErrorf("ReadOnlyMetaCache][DentryMarshal] parse byte buffer to entry Type fail")
+		return name, dentry_data, err
+	}
+	return name, dentry_data, nil
 }
 
 func AttrMarshal(a *proto.InodeInfo) ([]byte, error) {
