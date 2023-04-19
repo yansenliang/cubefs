@@ -32,7 +32,11 @@ func (s *Super) InodeGet(ino uint64) (*proto.InodeInfo, error) {
 	if info != nil {
 		return info, nil
 	}
-
+	if s.rdOnlyCache != nil {
+		if err := s.rdOnlyCache.GetAttr(ino, info); err == nil {
+			return info, nil
+		}
+	}
 	info, err := s.mw.InodeGet_ll(ino)
 	if err != nil || info == nil {
 		log.LogErrorf("InodeGet: ino(%v) err(%v) info(%v)", ino, err, info)
@@ -44,6 +48,7 @@ func (s *Super) InodeGet(ino uint64) (*proto.InodeInfo, error) {
 	}
 	s.ic.Put(info)
 	s.ec.RefreshExtentsCache(ino)
+	s.rdOnlyCache.PutAttr(info)
 	return info, nil
 }
 
