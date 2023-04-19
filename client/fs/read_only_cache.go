@@ -340,7 +340,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 	}
 	bytes_buf.Write(bs)
 	var length int
-	length, err = persistent_meta_cache.AttrBinaryFile.DataFile.WriteAt(bytes_buf.Bytes(), int64(persistent_meta_cache.DentryBinaryFile.EndPosition))
+	length, err = persistent_meta_cache.DentryBinaryFile.DataFile.WriteAt(bytes_buf.Bytes(), int64(persistent_meta_cache.DentryBinaryFile.EndPosition))
 	if err != nil {
 		log.LogErrorf("ReadOnlyMetaCache][WriteDentryToFile] writing dentry of inode %d to binary file fail", parentIno)
 		return err
