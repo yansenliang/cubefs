@@ -16,9 +16,6 @@ package fs
 
 import (
 	"fmt"
-	"github.com/cubefs/cubefs/util"
-	"github.com/cubefs/cubefs/util/auditlog"
-	"golang.org/x/net/context"
 	"net/http"
 	"os"
 	"path"
@@ -27,6 +24,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/cubefs/cubefs/util"
+	"github.com/cubefs/cubefs/util/auditlog"
+	"golang.org/x/net/context"
 
 	"github.com/hashicorp/consul/api"
 
@@ -53,6 +54,7 @@ type Super struct {
 	subDir      string
 	owner       string
 	ic          *InodeCache
+	rdOnlyCache *ReadOnlyMetaCache
 	dc          *Dcache
 	mw          *meta.MetaWrapper
 	ec          *stream.ExtentClient
@@ -150,6 +152,16 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 	} else {
 		s.ic = NewInodeCache(inodeExpiration, DefaultMaxInodeCache)
 		s.dc = NewDcache(inodeExpiration, DefaultMaxInodeCache)
+	}
+
+	if opt.Rdonly && opt.SubDir != "" {
+		var err error
+		s.rdOnlyCache, err = NewReadOnlyMetaCache(opt.SubDir)
+		if err != nil {
+			return nil, errors.Trace(err, "NewReadOnlyMetaCache failed!"+err.Error())
+		}
+	} else {
+		s.rdOnlyCache = nil
 	}
 	s.orphan = NewOrphanInodeList()
 	s.nodeCache = make(map[uint64]fs.Node)
