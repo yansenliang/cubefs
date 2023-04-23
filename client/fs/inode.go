@@ -33,6 +33,7 @@ func (s *Super) InodeGet(ino uint64) (*proto.InodeInfo, error) {
 		return info, nil
 	}
 	if s.rdOnlyCache != nil {
+		info = &proto.InodeInfo{}
 		if err := s.rdOnlyCache.GetAttr(ino, info); err == nil {
 			return info, nil
 		}

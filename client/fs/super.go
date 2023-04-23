@@ -156,8 +156,10 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 
 	if opt.Rdonly && opt.SubDir != "" {
 		var err error
+		log.LogDebugf("begin to init a rdOnlyCache")
 		s.rdOnlyCache, err = NewReadOnlyMetaCache(opt.SubDir)
 		if err != nil {
+			log.LogErrorf("newReadOnlyMetaCache failed")
 			return nil, errors.Trace(err, "NewReadOnlyMetaCache failed!"+err.Error())
 		}
 	} else {
