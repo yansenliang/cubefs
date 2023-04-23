@@ -316,7 +316,7 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 				ino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
 			}
 			if err != nil {
-				log.LogErrorf("dir.go:319. rdOnlyCache.Lookup: Readdir: ino(%v) err(%v)", d.info.Inode, err)
+				log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
 				ino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
 			}
 			if err != nil {
@@ -342,7 +342,7 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 				cino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
 			}
 			if err != nil {
-				log.LogErrorf("dir.go:347. rdOnlyCache.Lookup: Readdir: ino(%v) err(%v)", d.info.Inode, err)
+				log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
 				cino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
 			}
 			if err != nil {
@@ -404,18 +404,22 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		RdOnlyCacheHit bool
 	)
 	if d.super.rdOnlyCache != nil {
-		err = d.super.rdOnlyCache.GetDentry(d.info.Inode, children)
-	}
-	if err != nil {
-		RdOnlyCacheHit = false
-		log.LogErrorf("dir.go:416. rdOnlyCache.GetDentry: Readdir: ino(%v) err(%v)", d.info.Inode, err)
-		children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
-		if err != nil {
-			log.LogErrorf("dir.go:419. readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
-			return make([]fuse.Dirent, 0), ParseError(err)
+		if dirCtx.Name == "" {
+			children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
+			if err != nil {
+				log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentrys of ino(%v) from ReadOnlyCache failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
+				RdOnlyCacheHit = false
+				children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
+				if err != nil {
+					log.LogErrorf("[MetaWrapper][ReadDirLimit_ll]:  ino(%v) err(%v)", d.info.Inode, err)
+					return make([]fuse.Dirent, 0), ParseError(err)
+				}
+			} else {
+				RdOnlyCacheHit = true
+			}
+		} else {
+			return make([]fuse.Dirent, 0), io.EOF
 		}
-	} else {
-		RdOnlyCacheHit = true
 	}
 
 	// skip the first one, which is already accessed
@@ -470,7 +474,11 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	}
 
 	if !RdOnlyCacheHit {
-		d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
+		if err != io.EOF {
+			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
+		} else {
+			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
+		}
 	}
 
 	var infos []*proto.InodeInfo
@@ -478,9 +486,10 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	GetInfosFromRdOnlyCache := true
 	if d.super.rdOnlyCache != nil {
 		for _, inode := range inodes {
+			info = &proto.InodeInfo{}
 			err := d.super.rdOnlyCache.GetAttr(inode, info)
 			if err != nil {
-				log.LogErrorf("dir.go:494. rdOnlyCache.GetAttr: Readdir: ino(%v) err(%v)", inode, err)
+				log.LogErrorf("[ReadOnlyCache][GetAttr] : get attr of ino(%v) from ReadOnlyCache failed.  err(%v)", inode, err)
 				GetInfosFromRdOnlyCache = false
 			} else {
 				infos = append(infos, info)
@@ -491,7 +500,7 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		infos = d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
 			if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
-				log.LogDebugf("dir.go:505. rdOnlyCache.PutAttr: Readdir: info(%v) err(%v)", info, err)
+				log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
 			}
 		}
 	}
@@ -524,8 +533,8 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	RdOnlyCacheHit := true
 
 	if d.super.rdOnlyCache != nil {
-		if err = d.super.rdOnlyCache.GetDentry(d.info.Inode, children); err != nil {
-			log.LogErrorf("dir.go:539. rdOnlyCache.GetDentry: Readdir: ino(%v) err(%v)", d.info.Inode, err)
+		if children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode); err != nil {
+			log.LogErrorf("[ReadOnlyCache][GetDentry] : ino(%v) err(%v)", d.info.Inode, err)
 			RdOnlyCacheHit = false
 		}
 	}
@@ -595,9 +604,10 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	GetInfosFromRdOnlyCache := true
 	if d.super.rdOnlyCache != nil {
 		for _, inode := range inodes {
+			info = &proto.InodeInfo{}
 			err := d.super.rdOnlyCache.GetAttr(inode, info)
 			if err != nil {
-				log.LogErrorf("dir.go:611. rdOnlyCache.GetAttr: Readdir: ino(%v) err(%v)", inode, err)
+				log.LogErrorf("[ReadOnlyCache][GetAttr] : get attr of ino(%v) from ReadOnlyCache failed.  err(%v)", inode, err)
 				GetInfosFromRdOnlyCache = false
 			} else {
 				infos = append(infos, info)
@@ -608,7 +618,7 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		infos = d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
 			if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
-				log.LogDebugf("dir.go: 622. rdOnlyCache.PutAttr: Readdir: info(%v) err(%v)", info, err)
+				log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
 			}
 		}
 	}
