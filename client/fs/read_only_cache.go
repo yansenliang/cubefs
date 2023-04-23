@@ -45,6 +45,8 @@ type ReadOnlyMetaCache struct {
 	DentryBinaryFile    *persistentFileHandler       // DentryBinary File's Handle
 	Inode2PersistAttr   map[uint64]*persistentAttr   // transfer inode to persisent attr
 	Inode2PersistDentry map[uint64]*persistentDentry // transfer inode to persisent dentry
+	PersistAttrMtx      sync.RWMutex
+	PersistDentryMtx    sync.RWMutex
 }
 
 func NewReadOnlyMetaCache(sub_dir string) (*ReadOnlyMetaCache, error) {
@@ -57,7 +59,7 @@ func NewReadOnlyMetaCache(sub_dir string) (*ReadOnlyMetaCache, error) {
 	attr_file_path := sub_dir + "read_only_attr_cache"
 	dentry_file_path := sub_dir + "read_only_dentry_cache"
 	if err := meta_cache.ParseAllPersistentAttr(attr_file_path); err != nil {
-		log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse attr file fail,err(%s)",err.Error())
+		log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse attr file fail,err(%s)", err.Error())
 		return meta_cache, err
 	}
 	if err := meta_cache.ParseAllPersistentDentry(dentry_file_path); err != nil {
@@ -132,7 +134,11 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) PutAttr(attr *proto.InodeInfo) error {
-	if _, ok := persistent_meta_cache.Inode2PersistAttr[attr.Inode]; !ok {
+	persistent_meta_cache.PersistAttrMtx.Lock()
+	defer persistent_meta_cache.PersistAttrMtx.Unlock()
+
+	_, ok := persistent_meta_cache.Inode2PersistAttr[attr.Inode]
+	if !ok {
 		persistent_attr := &persistentAttr{
 			Addr: addressPointer{},
 		}
@@ -141,12 +147,16 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutAttr(attr *proto.InodeInfo) e
 			log.LogErrorf("[ReadOnlyCache][PutAttr] : persist attr to file fail, err: %s, ino: %d", err.Error(), attr.Inode)
 			return err
 		}
+
 		persistent_meta_cache.Inode2PersistAttr[attr.Inode] = persistent_attr
 	}
 	return nil
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *proto.InodeInfo) error {
+	persistent_meta_cache.PersistAttrMtx.RLock()
+	defer persistent_meta_cache.PersistAttrMtx.RUnlock()
+
 	persistent_attr, ok := persistent_meta_cache.Inode2PersistAttr[ino]
 	if !ok {
 		return errors.New(fmt.Sprintf("inode %d is not exist in read only cache", ino))
@@ -160,6 +170,9 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, dentries []proto.Dentry, is_end bool) error {
+	persistent_meta_cache.PersistDentryMtx.Lock()
+	defer persistent_meta_cache.PersistDentryMtx.Unlock()
+
 	var (
 		persistent_dentry *persistentDentry
 		ok                bool
@@ -168,7 +181,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[parentInode]
 	if !ok {
 		persistent_dentry = &persistentDentry{
-			IsPersist: false,
+			IsPersist:   false,
 			EntryBuffer: map[string]dentryData{},
 		}
 		persistent_meta_cache.Inode2PersistDentry[parentInode] = persistent_dentry
@@ -201,11 +214,15 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) (uint64, error) {
+	persistent_meta_cache.PersistDentryMtx.RLock()
+	defer persistent_meta_cache.PersistDentryMtx.RUnlock()
+
 	var (
 		persistent_dentry *persistentDentry
 		dentry            dentryData
 		ok                bool
 	)
+
 	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[ino]
 	if !ok {
 		return 0, errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
@@ -231,6 +248,9 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.Dentry, error) {
+	persistent_meta_cache.PersistDentryMtx.RLock()
+	defer persistent_meta_cache.PersistDentryMtx.RUnlock()
+
 	res := []proto.Dentry{}
 	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
 	// don'try to find in EntryBuffer if it has not been persisted, because it may not return complete entries in ino
