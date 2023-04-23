@@ -73,6 +73,10 @@ func NewReadOnlyMetaCache(sub_dir string) (*ReadOnlyMetaCache, error) {
 func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file_path string) error {
 	var err error
 	persistent_meta_cache.AttrBinaryFile.DataFile, err = os.OpenFile(attr_file_path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] open persisent attr file fail")
+		return err
+	}
 	// stat the attr file and set file size as EndPosisiton
 	info, _ := persistent_meta_cache.AttrBinaryFile.DataFile.Stat()
 	persistent_meta_cache.AttrBinaryFile.EndPosition = info.Size()
@@ -82,17 +86,23 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 	bytes_buf.Grow(16 + 8)
 	for i := int64(0); i < persistent_meta_cache.AttrBinaryFile.EndPosition; {
 		address := &addressPointer{}
-		persistent_meta_cache.AttrBinaryFile.DataFile.ReadAt(buf, i)
+		if _, err = persistent_meta_cache.AttrBinaryFile.DataFile.ReadAt(buf, i); err != nil {
+			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] read persisent attr file fail")
+			return err
+		}
 		bytes_buf.Read(buf)
 		if err = binary.Read(bytes_buf, binary.BigEndian, &address.Offset); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into address offset fail")
+			return err
 		}
 		if err = binary.Read(bytes_buf, binary.BigEndian, &address.Size); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into address size fail")
+			return err
 		}
 		var ino uint64
 		if err = binary.Read(bytes_buf, binary.BigEndian, &ino); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into ino fail")
+			return err
 		}
 		// skip the real attr , just read the next address
 		i = address.Offset + int64(address.Size)
@@ -105,6 +115,10 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_file string) error {
 	var err error
 	persistent_meta_cache.DentryBinaryFile.DataFile, err = os.OpenFile(dentry_file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] open persisent dentry file fail")
+		return err
+	}
 	// stat the attr file and set file size as EndPosisiton
 	info, _ := persistent_meta_cache.DentryBinaryFile.DataFile.Stat()
 	persistent_meta_cache.DentryBinaryFile.EndPosition = info.Size()
@@ -114,17 +128,23 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 	bytes_buf.Grow(16 + 8)
 	for i := int64(0); i < persistent_meta_cache.DentryBinaryFile.EndPosition; {
 		address := &addressPointer{}
-		persistent_meta_cache.DentryBinaryFile.DataFile.ReadAt(buf, i)
+		if _, err = persistent_meta_cache.DentryBinaryFile.DataFile.ReadAt(buf, i); err != nil {
+			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] read persisent dentry file fail")
+			return err
+		}
 		bytes_buf.Read(buf)
 		if err = binary.Read(bytes_buf, binary.BigEndian, &address.Offset); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into address offset fail")
+			return err
 		}
 		if err = binary.Read(bytes_buf, binary.BigEndian, &address.Size); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into address size fail")
+			return err
 		}
 		var ino uint64
 		if err = binary.Read(bytes_buf, binary.BigEndian, &ino); err != nil {
 			log.LogErrorf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into ino fail")
+			return err
 		}
 		// skip the real attr , just read the next address
 		i = address.Offset + int64(address.Size)
