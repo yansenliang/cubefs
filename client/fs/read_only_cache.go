@@ -355,13 +355,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addr
 		}
 		return err
 	}
-	bytes_buf := bytes.NewBuffer(buf)
-	var parentIno uint64
-	if err = binary.Read(bytes_buf, binary.BigEndian, &parentIno); err != nil {
-		log.LogErrorf("[ReadOnlyMetaCache][ReadDentryFromFile] parse bytes buffer data to parent Ino fail")
-		return err
-	}
-	if err := DentryBatchUnMarshal(bytes_buf.Bytes(), entries); err != nil {
+	if err := DentryBatchUnMarshal(buf, entries); err != nil {
 		log.LogErrorf("[ReadOnlyMetaCache][ReadDentryFromFile] unmarshal all entries fail")
 		return err
 	}
@@ -372,7 +366,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addr
 // write all dentry of one directory to the DentryFile
 func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint64, persistent_dentry *persistentDentry) error {
 	bytes_buf := &bytes.Buffer{}
-	bs, err := DentryBatchMarshal(persistent_dentry.EntryBuffer)
+	bs, err := DentryBatchMarshal(parentIno, &(persistent_dentry.EntryBuffer))
 	if err != nil {
 		return err
 	}
@@ -386,10 +380,6 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 		log.LogErrorf("[ReadOnlyMetaCache][WriteDentryToFile] writing size %d to bytes buffer fail", persistent_dentry.DentryHead.Size)
 		return err
 	}
-	if err := binary.Write(bytes_buf, binary.BigEndian, &parentIno); err != nil {
-		log.LogErrorf("[ReadOnlyMetaCache][WriteDentryToFile] writing parent ino %d to bytes buffer fail", parentIno)
-		return err
-	}
 	bytes_buf.Write(bs)
 	var length int
 	length, err = persistent_meta_cache.DentryBinaryFile.DataFile.WriteAt(bytes_buf.Bytes(), int64(persistent_meta_cache.DentryBinaryFile.EndPosition))
@@ -401,12 +391,17 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 	return nil
 }
 
-func DentryBatchMarshal(entries map[string]dentryData) ([]byte, error) {
+func DentryBatchMarshal(parentIno uint64, entries *map[string]dentryData) ([]byte, error) {
 	bytes_buf := bytes.NewBuffer(make([]byte, 0))
-	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(entries))); err != nil {
+	if err := binary.Write(bytes_buf, binary.BigEndian, &parentIno); err != nil {
+		log.LogErrorf("[ReadOnlyMetaCache][DentryBatchMarshal] writing parent ino %d to bytes buffer fail", parentIno)
 		return nil, err
 	}
-	for k, v := range entries {
+	if err := binary.Write(bytes_buf, binary.BigEndian, uint32(len(*entries))); err != nil {
+		log.LogErrorf("[ReadOnlyMetaCache][DentryBatchMarshal] writing len of entries fail")
+		return nil, err
+	}
+	for k, v := range *entries {
 		bs, err := DentryMarshal(k, v)
 		if err != nil {
 			log.LogErrorf("[ReadOnlyMetaCache][DentryBatchMarshal] marshal entry[%s, %d, %d] fail", k, v.Ino, v.Type)
@@ -425,6 +420,12 @@ func DentryBatchMarshal(entries map[string]dentryData) ([]byte, error) {
 
 func DentryBatchUnMarshal(raw []byte, entries *map[string]dentryData) error {
 	bytes_buf := bytes.NewBuffer(raw)
+	var parentIno uint64
+	if err := binary.Read(bytes_buf, binary.BigEndian, &parentIno); err != nil {
+		log.LogErrorf("[ReadOnlyMetaCache][DentryBatchUnMarshal] parse bytes buffer data to parent Ino fail")
+		return err
+	}
+
 	var batchLen uint32
 	if err := binary.Read(bytes_buf, binary.BigEndian, &batchLen); err != nil {
 		log.LogErrorf("[ReadOnlyMetaCache][DentryBatchUnMarshal] parse bytes buffer data to the count  of entries fail")
