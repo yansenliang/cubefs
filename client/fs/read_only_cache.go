@@ -14,6 +14,11 @@ import (
 	"github.com/cubefs/cubefs/util/log"
 )
 
+var (
+	DENTRY_NOT_CACHE = errors.New("DENTRY_NOT_CACHE")
+	DENTRY_NOT_EXIST = errors.New("DENTRY_NOT_EXIST")
+)
+
 type addressPointer struct {
 	Offset int64
 	Size   uint64
@@ -245,7 +250,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 
 	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[ino]
 	if !ok {
-		return 0, errors.New(fmt.Sprintf("dentry cache of inode %d is not exist in read only cache", ino))
+		log.LogDebugf("dentry cache of inode %d is not exist in read only cache", ino)
+		return 0, DENTRY_NOT_CACHE
 	}
 
 	// try to find in EntryBuffer if it has not been persisted
@@ -262,7 +268,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 	}
 	dentry, ok = all_entries[name]
 	if !ok {
-		return 0, errors.New(fmt.Sprintf("%s is not found in dentry cache of inode %d in read only cache", name, ino))
+		log.LogDebugf("%s is not found in persistent dentry cache of inode %d in read only cache", name, ino)
+		return 0, DENTRY_NOT_EXIST
 	}
 	return dentry.Ino, nil
 }
@@ -275,7 +282,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.D
 	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
 	// don'try to find in EntryBuffer if it has not been persisted, because it may not return complete entries in ino
 	if !ok || !persistent_dentry.IsPersist {
-		return res, errors.New(fmt.Sprintf("dentry cache of inode %d is not exist completely in read only cache", ino))
+		log.LogDebugf("dentry cache of inode %d is not exist completely in read only cache", ino)
+		return res, DENTRY_NOT_CACHE
 	}
 
 	var all_entries map[string]dentryData
