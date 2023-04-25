@@ -318,14 +318,18 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 				ino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
 			}
 			if err != nil {
-				log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
-				ino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
-			}
-			if err != nil {
-				if err != syscall.ENOENT {
-					log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
+				if err == DENTRY_NOT_EXIST {
+					return nil, ParseError(err)
+				} else {
+					log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
+					ino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
+					if err != nil {
+						if err != syscall.ENOENT {
+							log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
+						}
+						return nil, ParseError(err)
+					}
 				}
-				return nil, ParseError(err)
 			}
 			info := &proto.DentryInfo{
 				Name:  dcacheKey,
@@ -344,7 +348,11 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 				cino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
 			}
 			if err != nil {
-				log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
+				if err == DENTRY_NOT_EXIST {
+					// log.LogErrorf("[ReadOnlyCache][Lookup]:  DENTRY_NOT_EXIST. err(%v) dirName(%s)",err, d.name)
+					return nil, ParseError(syscall.ENOENT)
+				}
+				// log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s),find %v", d.info.Inode, err, d.name,req.Name)
 				cino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
 			}
 			if err != nil {
