@@ -41,7 +41,8 @@ import (
 
 // used to locate the position in parent
 type DirContext struct {
-	Name string
+	Name     string
+	ReadFull bool //only use in ReadOnlyCache, which denotes that we have read all entries from persisent cache
 }
 
 type DirContexts struct {
@@ -61,7 +62,7 @@ func (dctx *DirContexts) GetCopy(handle fuse.HandleID) DirContext {
 	dctx.RUnlock()
 
 	if found {
-		return DirContext{dirCtx.Name}
+		return DirContext{dirCtx.Name, dirCtx.ReadFull}
 	} else {
 		return DirContext{}
 	}
@@ -74,6 +75,7 @@ func (dctx *DirContexts) Put(handle fuse.HandleID, dirCtx *DirContext) {
 	oldCtx, found := dctx.dirCtx[handle]
 	if found {
 		oldCtx.Name = dirCtx.Name
+		oldCtx.ReadFull = dirCtx.ReadFull
 		return
 	}
 
@@ -404,7 +406,9 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		RdOnlyCacheHit bool
 	)
 	if d.super.rdOnlyCache != nil {
-		if dirCtx.Name == "" {
+		if dirCtx.ReadFull { // we have read all entries at the first time
+			return make([]fuse.Dirent, 0), io.EOF
+		} else {
 			children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
 			if err != nil {
 				log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentrys of ino(%v) from ReadOnlyCache failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
@@ -415,16 +419,19 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 					return make([]fuse.Dirent, 0), ParseError(err)
 				}
 			} else {
+				dirCtx.ReadFull = true
 				RdOnlyCacheHit = true
 			}
-		} else {
-			return make([]fuse.Dirent, 0), io.EOF
 		}
 	}
 
 	// skip the first one, which is already accessed
 	childrenNr := uint64(len(children))
 	if childrenNr == 0 || (dirCtx.Name != "" && childrenNr == 1) {
+		if d.super.rdOnlyCache != nil {
+			d.super.rdOnlyCache.PutDentry(d.info.Inode, []proto.Dentry{}, true)
+		}
+		dirCtx.ReadFull = true
 		return make([]fuse.Dirent, 0), io.EOF
 	} else if childrenNr < limit {
 		err = io.EOF
@@ -433,6 +440,14 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	}
 	if dirCtx.Name != "" {
 		children = children[1:]
+	}
+	if !RdOnlyCacheHit {
+		if err != io.EOF {
+			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
+		} else {
+			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
+			dirCtx.ReadFull = true
+		}
 	}
 
 	/* update dirCtx */
@@ -470,14 +485,6 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 			d.super.dc.Put(info)
 		} else {
 			dcache.Put(child.Name, child.Inode)
-		}
-	}
-
-	if !RdOnlyCacheHit {
-		if err != io.EOF {
-			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
-		} else {
-			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
 		}
 	}
 

@@ -370,7 +370,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint
 	if err != nil {
 		return err
 	}
-	persistent_dentry.DentryHead.Size = uint64(len(bs) + 8)                                       // 8 bytes for parentIno
+	persistent_dentry.DentryHead.Size = uint64(len(bs))
 	persistent_dentry.DentryHead.Offset = persistent_meta_cache.DentryBinaryFile.EndPosition + 16 // 16 bytes for address
 	if err := binary.Write(bytes_buf, binary.BigEndian, &persistent_dentry.DentryHead.Offset); err != nil {
 		log.LogErrorf("[ReadOnlyMetaCache][WriteDentryToFile] writing offset %d to bytes buffer fail", persistent_dentry.DentryHead.Offset)
