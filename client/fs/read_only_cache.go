@@ -244,7 +244,6 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 			log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry to file fail, err: %s, ino: %d", err.Error(), parentInode)
 			return err
 		}
-		log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry success ino: %d", parentInode)
 		persistent_dentry.IsPersist = true
 		persistent_dentry.Expiration = time.Duration(time.Now().Add(DefaultDentryBufferExpiredTime).UnixNano())
 		persistent_meta_cache.FullCachedEntryBuffer[parentInode] = persistent_meta_cache.LruList.PushFront(persistent_dentry)
@@ -317,7 +316,6 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.D
 		element.Value.(*persistentDentry).Expiration = time.Duration(time.Now().Add(DefaultDentryBufferExpiredTime).UnixNano())
 	} else {
 		err := persistent_meta_cache.ReadDentryFromFile(&persistent_dentry.DentryHead, &persistent_dentry.EntryBuffer)
-		log.LogErrorf("[ReadOnlyCache][PutDentry] : get persist dentry success ino: %d", ino)
 		log.LogDebugf("[ReadOnlyCache][GetDentry] : all_entries size  : %d, ino: %d", len(persistent_dentry.EntryBuffer), ino)
 		if err != nil {
 			log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)

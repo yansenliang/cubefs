@@ -423,13 +423,19 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 				RdOnlyCacheHit = false
 				children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
 				if err != nil {
-					log.LogErrorf("[MetaWrapper][ReadDirLimit_ll]:  ino(%v) err(%v)", d.info.Inode, err)
+					log.LogErrorf("readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
 					return make([]fuse.Dirent, 0), ParseError(err)
 				}
 			} else {
 				dirCtx.ReadFull = true
 				RdOnlyCacheHit = true
 			}
+		}
+	}else{
+		children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
+		if err != nil {
+			log.LogErrorf("readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
+			return make([]fuse.Dirent, 0), ParseError(err)
 		}
 	}
 
@@ -449,7 +455,7 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	if dirCtx.Name != "" {
 		children = children[1:]
 	}
-	if !RdOnlyCacheHit {
+	if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
 		if err != io.EOF {
 			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
 		} else {
@@ -495,33 +501,16 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 			dcache.Put(child.Name, child.Inode)
 		}
 	}
-
-	var infos []*proto.InodeInfo
-	var info *proto.InodeInfo
-	GetInfosFromRdOnlyCache := true
-	if d.super.rdOnlyCache != nil {
-		for _, inode := range inodes {
-			info = &proto.InodeInfo{}
-			err := d.super.rdOnlyCache.GetAttr(inode, info)
-			if err != nil {
-				log.LogErrorf("[ReadOnlyCache][GetAttr] : get attr of ino(%v) from ReadOnlyCache failed.  err(%v)", inode, err)
-				GetInfosFromRdOnlyCache = false
-			} else {
-				infos = append(infos, info)
-			}
-		}
-	}
-	if !GetInfosFromRdOnlyCache {
-		infos = d.super.mw.BatchInodeGet(inodes)
+	if d.super.rdOnlyCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
+		infos := d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
-			if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
-				log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
+			d.super.ic.Put(info)
+			if d.super.rdOnlyCache !=nil{
+				if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
+					log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
+				}
 			}
 		}
-	}
-
-	for _, info := range infos {
-		d.super.ic.Put(info)
 	}
 
 	d.dcache = dcache
