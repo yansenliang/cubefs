@@ -314,21 +314,23 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 			lookupMetric := exporter.NewCounter("lookupDcacheMiss")
 			lookupMetric.AddWithLabels(1, map[string]string{exporter.Vol: d.super.volname})
 
+			lookupFromRemote := true
 			if d.super.rdOnlyCache != nil {
 				ino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
-			}
-			if err != nil {
+				if err == nil || err == DENTRY_NOT_EXIST {
+					lookupFromRemote = false
+				}
 				if err == DENTRY_NOT_EXIST {
-					return nil, ParseError(err)
-				} else {
-					log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
-					ino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
-					if err != nil {
-						if err != syscall.ENOENT {
-							log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
-						}
-						return nil, ParseError(err)
+					return nil, ParseError(syscall.ENOENT)
+				}
+			}
+			if lookupFromRemote {
+				ino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
+				if err != nil {
+					if err != syscall.ENOENT {
+						log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
 					}
+					return nil, ParseError(err)
 				}
 			}
 			info := &proto.DentryInfo{
@@ -344,22 +346,24 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 	} else {
 		cino, ok := d.dcache.Get(req.Name)
 		if !ok {
+			clookupFromRemote := true
 			if d.super.rdOnlyCache != nil {
 				cino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
-			}
-			if err != nil {
+				if err == nil || err == DENTRY_NOT_EXIST {
+					clookupFromRemote = false
+				}
 				if err == DENTRY_NOT_EXIST {
-					// log.LogErrorf("[ReadOnlyCache][Lookup]:  DENTRY_NOT_EXIST. err(%v) dirName(%s)",err, d.name)
 					return nil, ParseError(syscall.ENOENT)
 				}
-				// log.LogErrorf("[ReadOnlyCache][Lookup]: lookup ino(%v) failed. err(%v) dirName(%s),find %v", d.info.Inode, err, d.name,req.Name)
-				cino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
 			}
-			if err != nil {
-				if err != syscall.ENOENT {
-					log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
+			if clookupFromRemote {
+				cino, _, err = d.super.mw.Lookup_ll(d.info.Inode, req.Name)
+				if err != nil {
+					if err != syscall.ENOENT {
+						log.LogErrorf("Lookup: parent(%v) name(%v) err(%v)", d.info.Inode, req.Name, err)
+					}
+					return nil, ParseError(err)
 				}
-				return nil, ParseError(err)
 			}
 		}
 		ino = cino
@@ -409,29 +413,23 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	}()
 
 	dirCtx := d.dctx.GetCopy(req.Handle)
-	var (
-		children       []proto.Dentry
-		RdOnlyCacheHit bool
-	)
+	var children []proto.Dentry
+	RdOnlyCacheHit := false
+	ReaddirFromRemote := true
+
 	if d.super.rdOnlyCache != nil {
 		if dirCtx.ReadFull { // we have read all entries at the first time
 			return make([]fuse.Dirent, 0), io.EOF
 		} else {
 			children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
-			if err != nil {
-				log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentrys of ino(%v) from ReadOnlyCache failed. err(%v) dirName(%s)", d.info.Inode, err, d.name)
-				RdOnlyCacheHit = false
-				children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
-				if err != nil {
-					log.LogErrorf("readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
-					return make([]fuse.Dirent, 0), ParseError(err)
-				}
-			} else {
+			if err == nil {
 				dirCtx.ReadFull = true
 				RdOnlyCacheHit = true
+				ReaddirFromRemote = false
 			}
 		}
-	}else{
+	}
+	if ReaddirFromRemote {
 		children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
 		if err != nil {
 			log.LogErrorf("readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
@@ -534,16 +532,17 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	var noMore = false
 	var from = ""
 	var children []proto.Dentry
-	RdOnlyCacheHit := true
+	RdOnlyCacheHit := false
+	ReaddirFromRemote := true
 
 	if d.super.rdOnlyCache != nil {
-		if children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode); err != nil {
-			log.LogErrorf("[ReadOnlyCache][GetDentry] : ino(%v) err(%v)", d.info.Inode, err)
-			RdOnlyCacheHit = false
+		children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
+		if err == nil {
+			RdOnlyCacheHit = true
+			ReaddirFromRemote = false
 		}
 	}
-
-	if !RdOnlyCacheHit {
+	if  ReaddirFromRemote {
 		for !noMore {
 			batches, err := d.super.mw.ReadDirLimit_ll(d.info.Inode, from, DefaultReaddirLimit)
 			if err != nil {
@@ -599,36 +598,20 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		}
 	}
 
-	if !RdOnlyCacheHit {
+	if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
 		d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
 	}
 
-	var infos []*proto.InodeInfo
-	var info *proto.InodeInfo
-	GetInfosFromRdOnlyCache := true
-	if d.super.rdOnlyCache != nil {
-		for _, inode := range inodes {
-			info = &proto.InodeInfo{}
-			err := d.super.rdOnlyCache.GetAttr(inode, info)
-			if err != nil {
-				log.LogErrorf("[ReadOnlyCache][GetAttr] : get attr of ino(%v) from ReadOnlyCache failed.  err(%v)", inode, err)
-				GetInfosFromRdOnlyCache = false
-			} else {
-				infos = append(infos, info)
-			}
-		}
-	}
-	if !GetInfosFromRdOnlyCache {
-		infos = d.super.mw.BatchInodeGet(inodes)
+	if d.super.rdOnlyCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
+		infos := d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
-			if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
-				log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
+			d.super.ic.Put(info)
+			if d.super.rdOnlyCache != nil {
+				if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
+					log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
+				}
 			}
 		}
-	}
-
-	for _, info := range infos {
-		d.super.ic.Put(info)
 	}
 	d.dcache = dcache
 	elapsed := time.Since(start)
