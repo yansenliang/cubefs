@@ -24,9 +24,9 @@ const (
 	MinDentryBufferEvictNum = 10
 	// MaxDentryCacheEvictNum is used in the back ground. We can evict 2000 entries at max.
 	MaxDentryBufferEvictNum        = 1000
-	MaxDEntryBufferElement         = 1000000
-	DentryBufferBgEvictionInterval = 5 * time.Minute
-	DefaultDentryBufferExpiredTime = 5 * time.Hour
+	MaxDentryBufferElement         = 1000000
+	DentryBufferBgEvictionInterval = 1 * time.Minute
+	DefaultDentryBufferExpiredTime = 1 * time.Minute
 )
 
 type addressPointer struct {
@@ -44,6 +44,7 @@ type dentryData struct {
 }
 
 type persistentDentry struct {
+	ino         uint64
 	DentryHead  addressPointer        // dentry address
 	EntryBuffer map[string]dentryData // buffer entry until all of the dir's the entry are cached
 	Expiration  time.Duration         // max time of persisted EntryBuffer stays in memory
@@ -170,6 +171,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 		// skip the real attr , just read the next address
 		i = address.Offset + int64(address.Size)
 		persistent_meta_cache.Inode2PersistDentry[ino] = &persistentDentry{
+			ino:        ino,
 			DentryHead: *address,
 			IsPersist:  true,
 		}
@@ -225,6 +227,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[parentInode]
 	if !ok {
 		persistent_dentry = &persistentDentry{
+			ino:         parentInode,
 			IsPersist:   false,
 			EntryBuffer: map[string]dentryData{},
 		}
@@ -248,8 +251,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 			return err
 		}
 
-		log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry success ino: %d", parentInode)
-		if persistent_meta_cache.LruList.Len() >= MaxDEntryBufferElement {
+		// log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry success ino: %d", parentInode)
+		if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 			persistent_meta_cache.Evict(true)
 		}
 
@@ -262,8 +265,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) (uint64, error) {
-	persistent_meta_cache.PersistDentryMtx.RLock()
-	defer persistent_meta_cache.PersistDentryMtx.RUnlock()
+	persistent_meta_cache.PersistDentryMtx.Lock()
+	defer persistent_meta_cache.PersistDentryMtx.Unlock()
 
 	var (
 		persistent_dentry *persistentDentry
@@ -289,9 +292,10 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 				log.LogDebugf("[ReadOnlyCache][Lookup] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
 				return 0, err
 			}
-			if persistent_meta_cache.LruList.Len() >= MaxDEntryBufferElement {
+			if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 				persistent_meta_cache.Evict(true)
 			}
+			log.LogErrorf("[ReadOnlyCache][Lookup] : get dentry from file success, ino: %d", ino)
 			persistent_dentry.Expiration = time.Duration(time.Now().Add(DefaultDentryBufferExpiredTime).UnixNano())
 			persistent_meta_cache.FullCachedEntryBuffer[ino] = persistent_meta_cache.LruList.PushFront(persistent_dentry)
 		}
@@ -312,8 +316,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.Dentry, error) {
-	persistent_meta_cache.PersistDentryMtx.RLock()
-	defer persistent_meta_cache.PersistDentryMtx.RUnlock()
+	persistent_meta_cache.PersistDentryMtx.Lock()
+	defer persistent_meta_cache.PersistDentryMtx.Unlock()
 
 	res := []proto.Dentry{}
 	persistent_dentry, ok := persistent_meta_cache.Inode2PersistDentry[ino]
@@ -334,7 +338,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.D
 			log.LogDebugf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
 			return res, err
 		}
-		if persistent_meta_cache.LruList.Len() >= MaxDEntryBufferElement {
+		log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file success, ino: %d", ino)
+		if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 			persistent_meta_cache.Evict(true)
 		}
 		persistent_dentry.Expiration = time.Duration(time.Now().Add(DefaultDentryBufferExpiredTime).UnixNano())
@@ -357,7 +362,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Evict(foreground bool) {
 	for i := 0; i < MinDentryBufferEvictNum; i++ {
 		element := persistent_meta_cache.LruList.Back()
 		if element == nil {
-			break
+			return
 		}
 		persist_dentry := element.Value.(*persistentDentry)
 		if !foreground && time.Now().UnixNano() <= int64(persist_dentry.Expiration) {
@@ -367,6 +372,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Evict(foreground bool) {
 		for k := range persist_dentry.EntryBuffer {
 			delete(persist_dentry.EntryBuffer, k)
 		}
+		delete(persistent_meta_cache.FullCachedEntryBuffer, persist_dentry.ino)
+		
 	}
 
 	if foreground {
@@ -376,17 +383,18 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Evict(foreground bool) {
 	for i := 0; i < MaxDentryBufferEvictNum; i++ {
 		element := persistent_meta_cache.LruList.Back()
 		if element == nil {
-			break
+			return
 		}
 		persist_dentry := element.Value.(*persistentDentry)
 		// elements after it are not expired, dosen't evict them
 		if time.Now().UnixNano() <= int64(persist_dentry.Expiration) {
-			break
+			return
 		}
 		persistent_meta_cache.LruList.Remove(element)
 		for k := range persist_dentry.EntryBuffer {
 			delete(persist_dentry.EntryBuffer, k)
 		}
+		delete(persistent_meta_cache.FullCachedEntryBuffer, persist_dentry.ino)
 	}
 }
 
@@ -395,13 +403,13 @@ func (persistent_meta_cache *ReadOnlyMetaCache) BackgroundEvictionEntryBuffer() 
 	defer t.Stop()
 
 	for range t.C {
-		log.LogInfof("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Start BG evict")
+		log.LogErrorf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Start BG evict")
 		start := time.Now()
 		persistent_meta_cache.PersistDentryMtx.Lock()
 		persistent_meta_cache.Evict(false)
 		persistent_meta_cache.PersistDentryMtx.Unlock()
 		elapsed := time.Since(start)
-		log.LogInfof("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", persistent_meta_cache.LruList.Len(), elapsed.Nanoseconds())
+		log.LogErrorf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", persistent_meta_cache.LruList.Len(), elapsed.Nanoseconds())
 	}
 }
 
