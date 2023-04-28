@@ -39,10 +39,17 @@ import (
 	"github.com/cubefs/cubefs/util/log"
 )
 
+// states of DirContext.ReadState
+var (
+	INIT_STATUS                = 0
+	READ_FROM_REMOTE           = 1
+	READ_FROM_PERSISETNT_CACHE = 2
+)
+
 // used to locate the position in parent
 type DirContext struct {
 	Name     string
-	ReadFull bool //only use in ReadOnlyCache, which denotes that we have read all entries from persisent cache
+	ReadState int  // -1 should be set if we read from the remote, 1 should be set if we read from the remote
 }
 
 type DirContexts struct {
@@ -62,7 +69,7 @@ func (dctx *DirContexts) GetCopy(handle fuse.HandleID) DirContext {
 	dctx.RUnlock()
 
 	if found {
-		return DirContext{dirCtx.Name, dirCtx.ReadFull}
+		return DirContext{dirCtx.Name, dirCtx.ReadState}
 	} else {
 		return DirContext{}
 	}
@@ -75,7 +82,7 @@ func (dctx *DirContexts) Put(handle fuse.HandleID, dirCtx *DirContext) {
 	oldCtx, found := dctx.dirCtx[handle]
 	if found {
 		oldCtx.Name = dirCtx.Name
-		oldCtx.ReadFull = dirCtx.ReadFull
+		oldCtx.ReadState = dirCtx.ReadState
 		return
 	}
 
@@ -415,35 +422,34 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	dirCtx := d.dctx.GetCopy(req.Handle)
 	var children []proto.Dentry
 	RdOnlyCacheHit := false
-	ReaddirFromRemote := true
-
-	if d.super.rdOnlyCache != nil {
-		if dirCtx.ReadFull { // we have read all entries at the first time
-			return make([]fuse.Dirent, 0), io.EOF
-		} else {
+	if dirCtx.ReadState == INIT_STATUS {
+		if d.super.rdOnlyCache != nil {
 			children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
 			if err == nil {
-				dirCtx.ReadFull = true
+				dirCtx.ReadState = READ_FROM_PERSISETNT_CACHE  // we have get all entries from readOnlyCache
 				RdOnlyCacheHit = true
-				ReaddirFromRemote = false
+			} else {
+				dirCtx.ReadState = READ_FROM_REMOTE // readOnlyCache miss, we should read from the remote
 			}
+		} else {
+			dirCtx.ReadState = READ_FROM_REMOTE
 		}
+	}  else if dirCtx.ReadState == READ_FROM_PERSISETNT_CACHE  {
+		return make([]fuse.Dirent, 0), io.EOF
 	}
-	if ReaddirFromRemote {
+	if dirCtx.ReadState == READ_FROM_REMOTE {
 		children, err = d.super.mw.ReadDirLimit_ll(d.info.Inode, dirCtx.Name, limit)
 		if err != nil {
 			log.LogErrorf("readdirlimit: Readdir: ino(%v) err(%v)", d.info.Inode, err)
 			return make([]fuse.Dirent, 0), ParseError(err)
 		}
 	}
-
 	// skip the first one, which is already accessed
 	childrenNr := uint64(len(children))
 	if childrenNr == 0 || (dirCtx.Name != "" && childrenNr == 1) {
-		if d.super.rdOnlyCache != nil {
+		if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
 			d.super.rdOnlyCache.PutDentry(d.info.Inode, []proto.Dentry{}, true)
 		}
-		dirCtx.ReadFull = true
 		return make([]fuse.Dirent, 0), io.EOF
 	} else if childrenNr < limit {
 		err = io.EOF
@@ -458,7 +464,6 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
 		} else {
 			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
-			dirCtx.ReadFull = true
 		}
 	}
 

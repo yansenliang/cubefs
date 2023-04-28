@@ -251,7 +251,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) PutDentry(parentInode uint64, de
 			return err
 		}
 
-		// log.LogErrorf("[ReadOnlyCache][PutDentry] : persist dentry success ino: %d", parentInode)
+		// log.LogDebugf("[ReadOnlyCache][PutDentry] : persist dentry success ino: %d", parentInode)
 		if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 			persistent_meta_cache.Evict(true)
 		}
@@ -295,7 +295,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 			if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 				persistent_meta_cache.Evict(true)
 			}
-			log.LogErrorf("[ReadOnlyCache][Lookup] : get dentry from file success, ino: %d", ino)
+			log.LogDebugf("[ReadOnlyCache][Lookup] : get dentry from file success, ino: %d", ino)
 			persistent_dentry.Expiration = time.Duration(time.Now().Add(DefaultDentryBufferExpiredTime).UnixNano())
 			persistent_meta_cache.FullCachedEntryBuffer[ino] = persistent_meta_cache.LruList.PushFront(persistent_dentry)
 		}
@@ -338,7 +338,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.D
 			log.LogDebugf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
 			return res, err
 		}
-		log.LogErrorf("[ReadOnlyCache][GetDentry] : get dentry from file success, ino: %d", ino)
+		log.LogDebugf("[ReadOnlyCache][GetDentry] : get dentry from file success, ino: %d", ino)
 		if persistent_meta_cache.LruList.Len() >= MaxDentryBufferElement {
 			persistent_meta_cache.Evict(true)
 		}
@@ -403,18 +403,18 @@ func (persistent_meta_cache *ReadOnlyMetaCache) BackgroundEvictionEntryBuffer() 
 	defer t.Stop()
 
 	for range t.C {
-		log.LogErrorf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Start BG evict")
+		log.LogDebugf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Start BG evict")
 		start := time.Now()
 		persistent_meta_cache.PersistDentryMtx.Lock()
 		persistent_meta_cache.Evict(false)
 		persistent_meta_cache.PersistDentryMtx.Unlock()
 		elapsed := time.Since(start)
-		log.LogErrorf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", persistent_meta_cache.LruList.Len(), elapsed.Nanoseconds())
+		log.LogDebugf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", persistent_meta_cache.LruList.Len(), elapsed.Nanoseconds())
 	}
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) ReadAttrFromFile(address *addressPointer, attr *proto.InodeInfo) error {
-	// log.LogErrorf("[ReadOnlyMetaCache][ReadAttrFromFile] -------")
+	// log.LogDebugf("[ReadOnlyMetaCache][ReadAttrFromFile] -------")
 	buf := make([]byte, address.Size)
 	_, err := persistent_meta_cache.AttrBinaryFile.DataFile.ReadAt(buf, address.Offset)
 	if err != nil && err != io.EOF {
@@ -429,7 +429,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadAttrFromFile(address *addres
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) WriteAttrToFile(attr *proto.InodeInfo, address *persistentAttr) error {
-	// log.LogErrorf("[ReadOnlyMetaCache][WriteAttrToFile] -------")
+	// log.LogDebugf("[ReadOnlyMetaCache][WriteAttrToFile] -------")
 	bytes_buf := &bytes.Buffer{}
 	bs, err := AttrMarshal(attr)
 	if err != nil {
@@ -457,7 +457,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) WriteAttrToFile(attr *proto.Inod
 }
 
 func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addressPointer, entries *map[string]dentryData) error {
-	// log.LogErrorf("[ReadOnlyMetaCache][ReadAttrFromFile] -------")
+	// log.LogDebugf("[ReadOnlyMetaCache][ReadAttrFromFile] -------")
 	buf := make([]byte, address.Size)
 	_, err := persistent_meta_cache.DentryBinaryFile.DataFile.ReadAt(buf, address.Offset)
 	if err != nil {
@@ -476,7 +476,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addr
 
 // write all dentry of one directory to the DentryFile
 func (persistent_meta_cache *ReadOnlyMetaCache) WriteDentryToFile(parentIno uint64, persistent_dentry *persistentDentry) error {
-	// log.LogErrorf("[ReadOnlyMetaCache][WriteDentryToFile] -------")
+	// log.LogDebugf("[ReadOnlyMetaCache][WriteDentryToFile] -------")
 	bytes_buf := &bytes.Buffer{}
 	bs, err := DentryBatchMarshal(parentIno, &(persistent_dentry.EntryBuffer))
 	if err != nil {
