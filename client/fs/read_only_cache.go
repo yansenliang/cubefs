@@ -68,7 +68,7 @@ type ReadOnlyMetaCache struct {
 	PersistDentryMtx      sync.RWMutex
 }
 
-func NewReadOnlyMetaCache(sub_dir string) (*ReadOnlyMetaCache, error) {
+func NewReadOnlyMetaCache(read_only_cache_dir string) (*ReadOnlyMetaCache, error) {
 	meta_cache := &ReadOnlyMetaCache{
 		AttrBinaryFile:        &persistentFileHandler{},
 		DentryBinaryFile:      &persistentFileHandler{},
@@ -77,14 +77,26 @@ func NewReadOnlyMetaCache(sub_dir string) (*ReadOnlyMetaCache, error) {
 		LruList:               list.New(),
 		FullCachedEntryBuffer: make(map[uint64]*list.Element),
 	}
-	attr_file_path := sub_dir + "read_only_attr_cache"
-	dentry_file_path := sub_dir + "read_only_dentry_cache"
+	exist, er := pathExists(read_only_cache_dir)
+	if er != nil {
+		log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] get read_only_cache_dir error(%s)", er.Error())
+		return nil, er
+	}
+	if !exist {
+		err := os.Mkdir(read_only_cache_dir, os.ModePerm)
+		if err != nil {
+			log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] mkdir [%s] failed.error(%s)", read_only_cache_dir, er.Error())
+			return nil, err
+		}
+	}
+	attr_file_path := read_only_cache_dir + "read_only_attr_cache"
+	dentry_file_path := read_only_cache_dir + "read_only_dentry_cache"
 	if err := meta_cache.ParseAllPersistentAttr(attr_file_path); err != nil {
-		log.LogDebugf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse attr file fail,err(%s)", err.Error())
+		log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse attr file fail,err(%s)", err.Error())
 		return meta_cache, err
 	}
 	if err := meta_cache.ParseAllPersistentDentry(dentry_file_path); err != nil {
-		log.LogDebugf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse dentry file fail,err(%s)", err.Error())
+		log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] parse dentry file fail,err(%s)", err.Error())
 		return meta_cache, err
 	}
 	go meta_cache.BackgroundEvictionEntryBuffer()
@@ -720,4 +732,15 @@ func AttrUnmarshal(raw []byte, a *proto.InodeInfo) error {
 		}
 	}
 	return nil
+}
+
+func pathExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }

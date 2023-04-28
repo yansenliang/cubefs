@@ -49,6 +49,7 @@ const (
 	EnableSummary
 	EnableUnixPermission
 	RequestTimeout
+	RdOnlyCacheDir
 
 	//adls
 	VolType
@@ -143,6 +144,7 @@ func InitMountOptions(opts []MountOption) {
 	opts[EbsBlockSize] = MountOption{"ebsBlockSize", "Ebs object size", "", ""}
 	//opts[EnableBcache] = MountOption{"enableBcache", "Enable block cache", "", false}
 	opts[BcacheDir] = MountOption{"bcacheDir", "block cache dir", "", ""}
+	opts[RdOnlyCacheDir] = MountOption{"rdOnlyCacheDir", "read only  cache dir", "", ""}
 	opts[ReadThreads] = MountOption{"readThreads", "Cold volume read threads", "", int64(10)}
 	opts[WriteThreads] = MountOption{"writeThreads", "Cold volume write threads", "", int64(10)}
 	opts[EnablePosixACL] = MountOption{"enablePosixACL", "enable posix ACL support", "", false}
@@ -305,4 +307,5 @@ type MountOptions struct {
 	MaxStreamerLimit     int64
 	EnableAudit          bool
 	RequestTimeout       int64
+	RdOnlyCacheDir       string
 }

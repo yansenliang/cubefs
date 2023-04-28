@@ -695,6 +695,7 @@ func parseMountOption(cfg *config.Config) (*proto.MountOptions, error) {
 	opt.KeepCache = GlobalMountOptions[proto.KeepCache].GetBool()
 	opt.FollowerRead = GlobalMountOptions[proto.FollowerRead].GetBool()
 	opt.Authenticate = GlobalMountOptions[proto.Authenticate].GetBool()
+	opt.RdOnlyCacheDir = GlobalMountOptions[proto.RdOnlyCacheDir].GetString()
 	if opt.Authenticate {
 		opt.TicketMess.ClientKey = GlobalMountOptions[proto.ClientKey].GetString()
 		ticketHostConfig := GlobalMountOptions[proto.TicketHost].GetString()

@@ -74,6 +74,8 @@ type Super struct {
 	sockaddr  string
 	suspendCh chan interface{}
 
+	rdOnlyCacheDir string
+
 	//data lake
 	volType             int
 	ebsEndpoint         string
@@ -154,10 +156,15 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 		s.dc = NewDcache(inodeExpiration, DefaultMaxInodeCache)
 	}
 
-	if opt.Rdonly && opt.SubDir != "" {
+	if opt.Rdonly && opt.RdOnlyCacheDir != "" {
 		var err error
 		log.LogDebugf("begin to init a rdOnlyCache")
-		s.rdOnlyCache, err = NewReadOnlyMetaCache(opt.SubDir)
+		if !strings.HasSuffix(opt.RdOnlyCacheDir, "/") {
+			s.rdOnlyCacheDir = opt.RdOnlyCacheDir + "/"
+		} else {
+			s.rdOnlyCacheDir = opt.RdOnlyCacheDir
+		}
+		s.rdOnlyCache, err = NewReadOnlyMetaCache(s.rdOnlyCacheDir)
 		if err != nil {
 			log.LogErrorf("newReadOnlyMetaCache failed")
 			return nil, errors.Trace(err, "NewReadOnlyMetaCache failed!"+err.Error())
