@@ -48,8 +48,8 @@ var (
 
 // used to locate the position in parent
 type DirContext struct {
-	Name     string
-	ReadState int  // -1 should be set if we read from the remote, 1 should be set if we read from the remote
+	Name      string
+	ReadState int // -1 should be set if we read from the remote, 1 should be set if we read from the remote
 }
 
 type DirContexts struct {
@@ -322,8 +322,8 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 			lookupMetric.AddWithLabels(1, map[string]string{exporter.Vol: d.super.volname})
 
 			lookupFromRemote := true
-			if d.super.rdOnlyCache != nil {
-				ino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
+			if d.super.rdOnlyMetaCache != nil {
+				ino, err = d.super.rdOnlyMetaCache.Lookup(d.info.Inode, req.Name)
 				if err == nil || err == DENTRY_NOT_EXIST {
 					lookupFromRemote = false
 				}
@@ -354,8 +354,8 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 		cino, ok := d.dcache.Get(req.Name)
 		if !ok {
 			clookupFromRemote := true
-			if d.super.rdOnlyCache != nil {
-				cino, err = d.super.rdOnlyCache.Lookup(d.info.Inode, req.Name)
+			if d.super.rdOnlyMetaCache != nil {
+				cino, err = d.super.rdOnlyMetaCache.Lookup(d.info.Inode, req.Name)
 				if err == nil || err == DENTRY_NOT_EXIST {
 					clookupFromRemote = false
 				}
@@ -423,10 +423,10 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	var children []proto.Dentry
 	RdOnlyCacheHit := false
 	if dirCtx.ReadState == INIT_STATUS {
-		if d.super.rdOnlyCache != nil {
-			children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
+		if d.super.rdOnlyMetaCache != nil {
+			children, err = d.super.rdOnlyMetaCache.GetDentry(d.info.Inode)
 			if err == nil {
-				dirCtx.ReadState = READ_FROM_PERSISETNT_CACHE  // we have get all entries from readOnlyCache
+				dirCtx.ReadState = READ_FROM_PERSISETNT_CACHE // we have get all entries from readOnlyCache
 				RdOnlyCacheHit = true
 			} else {
 				dirCtx.ReadState = READ_FROM_REMOTE // readOnlyCache miss, we should read from the remote
@@ -434,7 +434,7 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		} else {
 			dirCtx.ReadState = READ_FROM_REMOTE
 		}
-	}  else if dirCtx.ReadState == READ_FROM_PERSISETNT_CACHE  {
+	} else if dirCtx.ReadState == READ_FROM_PERSISETNT_CACHE {
 		return make([]fuse.Dirent, 0), io.EOF
 	}
 	if dirCtx.ReadState == READ_FROM_REMOTE {
@@ -447,8 +447,8 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	// skip the first one, which is already accessed
 	childrenNr := uint64(len(children))
 	if childrenNr == 0 || (dirCtx.Name != "" && childrenNr == 1) {
-		if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
-			d.super.rdOnlyCache.PutDentry(d.info.Inode, []proto.Dentry{}, true)
+		if d.super.rdOnlyMetaCache != nil && !RdOnlyCacheHit {
+			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, []proto.Dentry{}, true)
 		}
 		return make([]fuse.Dirent, 0), io.EOF
 	} else if childrenNr < limit {
@@ -459,11 +459,11 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	if dirCtx.Name != "" {
 		children = children[1:]
 	}
-	if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
+	if d.super.rdOnlyMetaCache != nil && !RdOnlyCacheHit {
 		if err != io.EOF {
-			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, false)
+			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, false)
 		} else {
-			d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
+			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, true)
 		}
 	}
 
@@ -504,12 +504,12 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 			dcache.Put(child.Name, child.Inode)
 		}
 	}
-	if d.super.rdOnlyCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
+	if d.super.rdOnlyMetaCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
 		infos := d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
 			d.super.ic.Put(info)
-			if d.super.rdOnlyCache !=nil{
-				if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
+			if d.super.rdOnlyMetaCache != nil {
+				if err := d.super.rdOnlyMetaCache.PutAttr(info); err != nil {
 					log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
 				}
 			}
@@ -540,14 +540,14 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	RdOnlyCacheHit := false
 	ReaddirFromRemote := true
 
-	if d.super.rdOnlyCache != nil {
-		children, err = d.super.rdOnlyCache.GetDentry(d.info.Inode)
+	if d.super.rdOnlyMetaCache != nil {
+		children, err = d.super.rdOnlyMetaCache.GetDentry(d.info.Inode)
 		if err == nil {
 			RdOnlyCacheHit = true
 			ReaddirFromRemote = false
 		}
 	}
-	if  ReaddirFromRemote {
+	if ReaddirFromRemote {
 		for !noMore {
 			batches, err := d.super.mw.ReadDirLimit_ll(d.info.Inode, from, DefaultReaddirLimit)
 			if err != nil {
@@ -603,16 +603,16 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 		}
 	}
 
-	if d.super.rdOnlyCache != nil && !RdOnlyCacheHit {
-		d.super.rdOnlyCache.PutDentry(d.info.Inode, children, true)
+	if d.super.rdOnlyMetaCache != nil && !RdOnlyCacheHit {
+		d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, true)
 	}
 
-	if d.super.rdOnlyCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
+	if d.super.rdOnlyMetaCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr
 		infos := d.super.mw.BatchInodeGet(inodes)
 		for _, info := range infos {
 			d.super.ic.Put(info)
-			if d.super.rdOnlyCache != nil {
-				if err := d.super.rdOnlyCache.PutAttr(info); err != nil {
+			if d.super.rdOnlyMetaCache != nil {
+				if err := d.super.rdOnlyMetaCache.PutAttr(info); err != nil {
 					log.LogErrorf("[ReadOnlyCache][PutAttr] : put attr of ino(%v) into ReadOnlyCache failed.  err(%v)", info.Inode, err)
 				}
 			}

@@ -47,20 +47,20 @@ import (
 
 // Super defines the struct of a super block.
 type Super struct {
-	cluster     string
-	volname     string
-	masters     string
-	mountPoint  string
-	subDir      string
-	owner       string
-	ic          *InodeCache
-	rdOnlyCache *ReadOnlyMetaCache
-	dc          *Dcache
-	mw          *meta.MetaWrapper
-	ec          *stream.ExtentClient
-	orphan      *OrphanInodeList
-	enSyncWrite bool
-	keepCache   bool
+	cluster         string
+	volname         string
+	masters         string
+	mountPoint      string
+	subDir          string
+	owner           string
+	ic              *InodeCache
+	rdOnlyMetaCache *ReadOnlyMetaCache
+	dc              *Dcache
+	mw              *meta.MetaWrapper
+	ec              *stream.ExtentClient
+	orphan          *OrphanInodeList
+	enSyncWrite     bool
+	keepCache       bool
 
 	nodeCache map[uint64]fs.Node
 	fslock    sync.Mutex
@@ -74,7 +74,7 @@ type Super struct {
 	sockaddr  string
 	suspendCh chan interface{}
 
-	rdOnlyCacheDir string
+	rdOnlyMetaCacheDir string
 
 	//data lake
 	volType             int
@@ -156,21 +156,21 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 		s.dc = NewDcache(inodeExpiration, DefaultMaxInodeCache)
 	}
 
-	if opt.Rdonly && opt.RdOnlyCacheDir != "" {
+	if opt.Rdonly && opt.RdOnlyMetaCacheDir != "" {
 		var err error
 		log.LogDebugf("begin to init a rdOnlyCache")
-		if !strings.HasSuffix(opt.RdOnlyCacheDir, "/") {
-			s.rdOnlyCacheDir = opt.RdOnlyCacheDir + "/"
+		if !strings.HasSuffix(opt.RdOnlyMetaCacheDir, "/") {
+			s.rdOnlyMetaCacheDir = opt.RdOnlyMetaCacheDir + "/"
 		} else {
-			s.rdOnlyCacheDir = opt.RdOnlyCacheDir
+			s.rdOnlyMetaCacheDir = opt.RdOnlyMetaCacheDir
 		}
-		s.rdOnlyCache, err = NewReadOnlyMetaCache(s.rdOnlyCacheDir)
+		s.rdOnlyMetaCache, err = NewReadOnlyMetaCache(s.rdOnlyMetaCacheDir)
 		if err != nil {
 			log.LogErrorf("newReadOnlyMetaCache failed")
 			return nil, errors.Trace(err, "NewReadOnlyMetaCache failed!"+err.Error())
 		}
 	} else {
-		s.rdOnlyCache = nil
+		s.rdOnlyMetaCache = nil
 	}
 	s.orphan = NewOrphanInodeList()
 	s.nodeCache = make(map[uint64]fs.Node)
