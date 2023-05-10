@@ -726,8 +726,8 @@ func AttrUnmarshal(raw []byte, a *proto.InodeInfo) error {
 		log.LogDebugf("[ReadOnlyMetaCache][AttrUnmarshal] parse byte buffer to targetSize fail")
 		return err
 	}
+	a.Target = make([]byte, targetSize)
 	if targetSize > 0 {
-		a.Target = make([]byte, targetSize)
 		if _, err = io.ReadFull(buff, a.Target); err != nil {
 			log.LogDebugf("[ReadOnlyMetaCache][AttrUnmarshal] read target of Inode %d fail", a.Inode)
 		}
