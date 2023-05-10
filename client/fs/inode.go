@@ -36,9 +36,9 @@ func (s *Super) InodeGet(ino uint64) (*proto.InodeInfo, error) {
 	getAttrFromRemote := true
 	info = &proto.InodeInfo{}
 	var err error
-	if s.rdOnlyCache != nil {
+	if s.rdOnlyMetaCache != nil {
 		info = &proto.InodeInfo{}
-		if err := s.rdOnlyCache.GetAttr(ino, info); err == nil {
+		if err := s.rdOnlyMetaCache.GetAttr(ino, info); err == nil {
 			getAttrFromRemote = false
 		}
 	}
@@ -55,8 +55,8 @@ func (s *Super) InodeGet(ino uint64) (*proto.InodeInfo, error) {
 	}
 	s.ic.Put(info)
 	s.ec.RefreshExtentsCache(ino)
-	if s.rdOnlyCache != nil {
-		s.rdOnlyCache.PutAttr(info)
+	if s.rdOnlyMetaCache != nil {
+		s.rdOnlyMetaCache.PutAttr(info)
 	}
 	return info, nil
 }
