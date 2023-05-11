@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -82,7 +83,7 @@ func NewReadOnlyMetaCache(read_only_cache_dir string) (*ReadOnlyMetaCache, error
 		return nil, er
 	}
 	if !exist {
-		err := os.Mkdir(read_only_cache_dir, os.ModePerm)
+		err := os.MkdirAll(read_only_cache_dir, os.ModePerm)
 		if err != nil {
 			log.LogErrorf("[ReadOnlyMetaCache][NewReadOnlyMetaCache] mkdir [%s] failed.error(%s)", read_only_cache_dir, er.Error())
 			return nil, err
@@ -105,18 +106,20 @@ func NewReadOnlyMetaCache(read_only_cache_dir string) (*ReadOnlyMetaCache, error
 // open and read the Attr file to build Inode2PersistAttr, it will also set AttrBinaryFile correct
 func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file_path string) error {
 	var err error
-	persistent_meta_cache.AttrBinaryFile.DataFile, err = os.OpenFile(attr_file_path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	persistent_meta_cache.AttrBinaryFile.DataFile, err = os.OpenFile(attr_file_path, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		log.LogDebugf("[ReadOnlyCache][ParseAllPersistentAttr] open persisent attr file fail")
 		return err
 	}
+
 	// stat the attr file and set file size as EndPosisiton
 	info, _ := persistent_meta_cache.AttrBinaryFile.DataFile.Stat()
 	persistent_meta_cache.AttrBinaryFile.EndPosition = info.Size()
+	fmt.Printf("[ReadOnlyCache][ParseAllPersistentAttr] End Position: %d", info.Size())
 
-	buf := make([]byte, 16+8) // 16 bytes for address, 8 bytes for Ino
+	buf := make([]byte, 16) // 16 bytes for address
 	bytes_buf := &bytes.Buffer{}
-	bytes_buf.Grow(16 + 8)
+	bytes_buf.Grow(16)
 	for i := int64(0); i < persistent_meta_cache.AttrBinaryFile.EndPosition; {
 		address := &addressPointer{}
 		if _, err = persistent_meta_cache.AttrBinaryFile.DataFile.ReadAt(buf, i); err != nil {
@@ -137,6 +140,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 			log.LogDebugf("[ReadOnlyCache][ParseAllPersistentAttr] parse byte buffer into ino fail")
 			return err
 		}
+		fmt.Printf("[ReadOnlyCache][ParseAllPersistentAttr] Parse: %d successfully", ino)
 		// skip the real attr , just read the next address
 		i = address.Offset + int64(address.Size)
 		persistent_meta_cache.Inode2PersistAttr[ino] = &persistentAttr{Addr: *address}
@@ -147,7 +151,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 // open and read the Dentry file to build Inode2PersistDentry, it will also set DentryBinaryFile correct
 func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_file string) error {
 	var err error
-	persistent_meta_cache.DentryBinaryFile.DataFile, err = os.OpenFile(dentry_file, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	persistent_meta_cache.DentryBinaryFile.DataFile, err = os.OpenFile(dentry_file, os.O_RDWR|os.O_CREATE, 0666)
 	if err != nil {
 		log.LogDebugf("[ReadOnlyCache][ParseAllPersistentAttr] open persisent dentry file fail")
 		return err
@@ -217,6 +221,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *
 	persistent_attr, ok := persistent_meta_cache.Inode2PersistAttr[ino]
 	if !ok {
 		log.LogDebugf("inode %d is not exist in read only cache", ino)
+		// fmt.Printf("inode %d is not exist in read only cache", ino)
 		return nil
 	}
 	err := persistent_meta_cache.ReadAttrFromFile(&persistent_attr.Addr, inode_info)
@@ -726,8 +731,8 @@ func AttrUnmarshal(raw []byte, a *proto.InodeInfo) error {
 		log.LogDebugf("[ReadOnlyMetaCache][AttrUnmarshal] parse byte buffer to targetSize fail")
 		return err
 	}
+	a.Target = make([]byte, targetSize)
 	if targetSize > 0 {
-		a.Target = make([]byte, targetSize)
 		if _, err = io.ReadFull(buff, a.Target); err != nil {
 			log.LogDebugf("[ReadOnlyMetaCache][AttrUnmarshal] read target of Inode %d fail", a.Inode)
 		}
