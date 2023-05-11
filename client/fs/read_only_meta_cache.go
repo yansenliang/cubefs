@@ -62,12 +62,13 @@ type persistentFileHandler struct {
 
 type ReadOnlyMetaCache struct {
 	sync.RWMutex
-	AttrBinaryFile        *persistentFileHandler       // AttrBinary File's Handle
-	DentryBinaryFile      *persistentFileHandler       // DentryBinary File's Handle
-	Inode2PersistAttr     map[uint64]*persistentAttr   // transfer inode to persisent attr
-	Inode2PersistDentry   map[uint64]*persistentDentry // transfer inode to persisent dentry
-	FullCachedEntryBuffer map[uint64]*list.Element     // key is ino, element is address pointer of persistentDentry
-	LruList               *list.List                   // store full cached Entrybuffer
+	AttrBinaryFile      *persistentFileHandler       // AttrBinary File's Handle
+	DentryBinaryFile    *persistentFileHandler       // DentryBinary File's Handle
+	Inode2PersistAttr   map[uint64]*persistentAttr   // transfer inode to persisent attr
+	Inode2PersistDentry map[uint64]*persistentDentry // transfer inode to persisent dentry
+
+	FullCachedEntryBuffer map[uint64]*list.Element // key is ino, element is address pointer of persistentDentry
+	LruList               *list.List               // store full cached Entrybuffer
 	PersistAttrMtx        sync.RWMutex
 	PersistDentryMtx      sync.RWMutex
 }
@@ -114,6 +115,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 		log.LogDebugf("[ReadOnlyCache][ParseAllPersistentAttr] open persisent attr file fail")
 		return err
 	}
+	//fp.Seek(0, io.SeekStart)
 	persistent_meta_cache.AttrBinaryFile.DataFile = fp
 	persistent_meta_cache.AttrBinaryFile.EndPosition = 0
 	// if the size of attr file is 0, parsing is needless
@@ -121,7 +123,6 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 	if info.Size() == 0 {
 		return nil
 	}
-	var endPosition int64
 	reader := bufio.NewReaderSize(fp, 4*1024*1024)
 	var headerLen int64
 	headerLen = 16 + 8 + 4            // 16 bytes for address, 8 bytes for Ino, 4 bytes for crc
@@ -161,9 +162,8 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentAttr(attr_file
 			Size:   length,
 		}
 		persistent_meta_cache.Inode2PersistAttr[ino] = &persistentAttr{Addr: address}
-		endPosition += headerLen + int64(length)
+		persistent_meta_cache.AttrBinaryFile.EndPosition += headerLen + int64(length)
 	}
-	persistent_meta_cache.AttrBinaryFile.EndPosition = endPosition
 	return nil
 }
 
@@ -175,14 +175,14 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 		log.LogDebugf("[ReadOnlyCache][ParseAllPersistentDentry] open persisent dentry file fail")
 		return err
 	}
-	persistent_meta_cache.AttrBinaryFile.DataFile = fp
-	persistent_meta_cache.AttrBinaryFile.EndPosition = 0
+	//fp.Seek(0, io.SeekStart)
+	persistent_meta_cache.DentryBinaryFile.DataFile = fp
+	persistent_meta_cache.DentryBinaryFile.EndPosition = 0
 	// if the size of dentry file is 0, parsing is needless
 	info, _ := fp.Stat()
 	if info.Size() == 0 {
 		return nil
 	}
-	var endPosition int64
 	reader := bufio.NewReaderSize(fp, 4*1024*1024)
 	var headerLen int64
 	headerLen = 16 + 8 + 4 // 16 bytes for address, 8 bytes for Ino, 4 bytes for crc
@@ -201,6 +201,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 		length := binary.BigEndian.Uint64(dentryBuf[8:16])
 		ino := binary.BigEndian.Uint64(dentryBuf[16 : 16+8])
 		crcShould := binary.BigEndian.Uint32(dentryBuf[16+8:])
+		//fmt.Printf("Parse Dentry, offset: %d, length: %d ,ino :%d\n", offset, length, ino)
 		// next read body and check
 		if uint64(cap(dentryBuf)) >= length {
 			dentryBuf = dentryBuf[:length]
@@ -221,13 +222,13 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ParseAllPersistentDentry(dentry_
 			Size:   length,
 		}
 		persistent_meta_cache.Inode2PersistDentry[ino] = &persistentDentry{
-			ino:        ino,
-			DentryHead: address,
-			IsPersist:  true,
+			ino:         ino,
+			DentryHead:  address,
+			IsPersist:   true,
+			EntryBuffer: map[string]dentryData{},
 		}
-		endPosition += headerLen + int64(length)
+		persistent_meta_cache.DentryBinaryFile.EndPosition += headerLen + int64(length)
 	}
-	persistent_meta_cache.AttrBinaryFile.EndPosition = endPosition
 	return nil
 }
 
@@ -331,6 +332,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Lookup(ino uint64, name string) 
 	persistent_dentry, ok = persistent_meta_cache.Inode2PersistDentry[ino]
 	if !ok {
 		log.LogDebugf("dentry cache of inode %d is not exist in read only cache", ino)
+		//fmt.Printf("%d is not cached\n", ino)
 		return 0, DENTRY_NOT_CACHE
 	}
 
@@ -390,6 +392,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetDentry(ino uint64) ([]proto.D
 		log.LogDebugf("[ReadOnlyCache][GetDentry] : all_entries size  : %d, ino: %d", len(persistent_dentry.EntryBuffer), ino)
 		if err != nil {
 			log.LogDebugf("[ReadOnlyCache][GetDentry] : get dentry from file fail, err : %s, ino: %d", err.Error(), ino)
+			// fmt.Printf("[ReadOnlyMetaCache][ReadDentryFromFile] Read From File Fail, offset: %d, size: %d", persistent_dentry.DentryHead.Offset, persistent_dentry.DentryHead.Size)
 			return res, err
 		}
 		log.LogDebugf("[ReadOnlyCache][GetDentry] : get dentry from file success, ino: %d", ino)
@@ -427,7 +430,6 @@ func (persistent_meta_cache *ReadOnlyMetaCache) Evict(foreground bool) {
 			delete(persist_dentry.EntryBuffer, k)
 		}
 		delete(persistent_meta_cache.FullCachedEntryBuffer, persist_dentry.ino)
-
 	}
 
 	if foreground {
@@ -635,6 +637,7 @@ func DentryBatchUnMarshal(raw []byte, entries *map[string]dentryData) error {
 		}
 		(*entries)[name] = dentry_data
 	}
+	// fmt.Printf("[ReadOnlyMetaCache][DentryBatchUnMarshal] umarshal num:%d\n", len(*entries))
 	return nil
 }
 
@@ -802,7 +805,7 @@ func ComputeDataCrc(data []byte) (crc uint32, err error) {
 	for blockNo := 0; blockNo < blockCnt; blockNo++ {
 		offset := int64(blockNo * DefaultBlockSize)
 		ends := offset + DefaultBlockSize
-		if blockNo == blockNo-1 {
+		if blockNo == blockCnt-1 {
 			ends = int64(len(data))
 		}
 		blockCrc := crc32.ChecksumIEEE(data[offset:ends])

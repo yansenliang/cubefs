@@ -192,6 +192,13 @@ func TestGetDentry(t *testing.T) {
 	subdir_attr_case_1 := GenerateAttrCase(test_case_num)
 	subdir_dentries_1 := GenerateDentries(subdir_attr_case_1)
 
+	// Fetch Dentry From Cache with loading EntryBuffer
+	fetch_dentries_3, err = read_only_meta_cache.GetDentry(root_inode.Inode)
+	if !CompareDentries(root_subdir_dentries, fetch_dentries_3) {
+		require.Equal(t, root_subdir_dentries, fetch_dentries_3)
+		t.Fatalf("[TestGetDentry] Get wrong dentry data, error: %s", err.Error())
+	}
+
 	// fetch not cached dentry
 	fetch_dentries_1, err = read_only_meta_cache.GetDentry(parent_attr.Inode)
 	require.Equal(t, 0, len(fetch_dentries_1))
@@ -218,12 +225,6 @@ func TestGetDentry(t *testing.T) {
 		t.Fatalf("[TestGetDentry] Get wrong dentry data, error: %s", err.Error())
 	}
 
-	// Fetch Dentry From Cache with loading EntryBuffer
-	fetch_dentries_3, err = read_only_meta_cache.GetDentry(root_inode.Inode)
-	if !CompareDentries(root_subdir_dentries, fetch_dentries_3) {
-		// require.Equal(t, root_subdir_dentries, fetch_dentries_3)
-		t.Fatalf("[TestGetDentry] Get wrong dentry data, error: %s", err.Error())
-	}
 }
 
 func TestLookup(t *testing.T) {
@@ -236,6 +237,14 @@ func TestLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
+
+	// Lookup cached dentry with persistent_dentry loading EntryBuffer
+	ino, err = read_only_meta_cache.Lookup(root_inode.Inode, root_subdir_dentries[0].Name)
+	if err != nil {
+		fmt.Printf("[TestLookup]Fail: err: %s", err.Error())
+	}
+	require.Equal(t, root_subdir_dentries[0].Inode, ino)
+
 	parent_attr := GenerateAttrCase(1)[0]
 	// Lookup in not cached persistent_dentry
 	ino, err = read_only_meta_cache.Lookup(parent_attr.Inode, "not_exist")
@@ -271,8 +280,38 @@ func TestLookup(t *testing.T) {
 	ino, err = read_only_meta_cache.Lookup(parent_attr.Inode, "not_exist")
 	require.Equal(t, uint64(0), ino)
 	require.Equal(t, DENTRY_NOT_EXIST, err)
+}
 
-	// Lookup cached dentry with persistent_dentry loading EntryBuffer
-	ino, err = read_only_meta_cache.Lookup(root_inode.Inode, root_subdir_dentries[0].Name)
-	require.Equal(t, root_subdir_dentries[0].Inode, ino)
+func TestEvict(t *testing.T) {
+	var (
+		err                  error
+		read_only_meta_cache *ReadOnlyMetaCache
+	)
+	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	if err != nil {
+		t.Fatalf("New Read Only Meta Cache Fail")
+	}
+
+	// Test active EntryBuffer eviction until no buffer cached
+	read_only_meta_cache.Evict(true)
+
+	// Normal Foreground EntryBuffer Evict When excuting PutDentry
+	for i := 0; i < MaxDentryBufferElement*3/2; i++ {
+		parent_attr := GenerateAttrCase(1)[0]
+		subdir_attr_case := GenerateAttrCase(test_case_num)
+		subdir_dentries := GenerateDentries(subdir_attr_case)
+		err = read_only_meta_cache.PutDentry(parent_attr.Inode, subdir_dentries, true)
+	}
+
+	// Test background execution when no entrybuffer is expired
+	read_only_meta_cache.Evict(false)
+
+	// Test active EntryBuffer eviction when num of entry buffer is more than MinDentryBufferEvictNum
+	read_only_meta_cache.Evict(true)
+
+	// Wait For Background Eviction Goroutine runing
+	time.Sleep(1 * time.Minute)
+
+	// Test background execution when num of expired entrybuffer is more than MinDentryBufferEvictNum
+	read_only_meta_cache.Evict(false)
 }
