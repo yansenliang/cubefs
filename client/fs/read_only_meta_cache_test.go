@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 var (
+	data_path     string = "/test/rdOnlyCache/unit_test/"
 	next_inode    uint64 = 2
 	test_case_num int32  = 5
 	root_inode           = proto.InodeInfo{
@@ -52,20 +54,23 @@ func GenerateAttrCase(case_num int32) []proto.InodeInfo {
 	rand.Seed(time.Now().UnixNano())
 	mode_set := []fs.FileMode{fs.ModeDir, fs.ModeSymlink, fs.ModeNamedPipe, fs.ModeSocket, fs.ModeDevice, fs.ModeCharDevice, fs.ModeIrregular}
 	for index := 0; index < int(case_num); index++ {
-		test_attr_case = append(test_attr_case,
-			proto.InodeInfo{
-				Inode:      next_inode,
-				Mode:       uint32(mode_set[rand.Intn(len(mode_set))]),
-				Nlink:      rand.Uint32(),
-				Size:       rand.Uint64(),
-				Uid:        rand.Uint32(),
-				Gid:        rand.Uint32(),
-				Generation: rand.Uint64(),
-				ModifyTime: time.Unix(time.Now().Unix(), 0),
-				CreateTime: time.Unix(time.Now().Unix(), 0),
-				AccessTime: time.Unix(time.Now().Unix(), 0),
-				Target:     []byte{},
-			})
+		inode_info := proto.InodeInfo{
+			Inode:      next_inode,
+			Mode:       uint32(mode_set[rand.Intn(len(mode_set))]),
+			Nlink:      rand.Uint32(),
+			Size:       rand.Uint64(),
+			Uid:        rand.Uint32(),
+			Gid:        rand.Uint32(),
+			Generation: rand.Uint64(),
+			ModifyTime: time.Unix(time.Now().Unix(), 0),
+			CreateTime: time.Unix(time.Now().Unix(), 0),
+			AccessTime: time.Unix(time.Now().Unix(), 0),
+			Target:     []byte{},
+		}
+		if inode_info.Mode == uint32(fs.ModeSymlink) {
+			inode_info.Target = []byte("/symbolink")
+		}
+		test_attr_case = append(test_attr_case, inode_info)
 		next_inode++
 	}
 	return test_attr_case
@@ -89,7 +94,7 @@ func TestPutAttr(t *testing.T) {
 		err                  error
 		read_only_meta_cache *ReadOnlyMetaCache
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -111,7 +116,7 @@ func TestGetAttr(t *testing.T) {
 		err                  error
 		read_only_meta_cache *ReadOnlyMetaCache
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -152,7 +157,7 @@ func TestPutDentry(t *testing.T) {
 		err                  error
 		read_only_meta_cache *ReadOnlyMetaCache
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -183,7 +188,7 @@ func TestGetDentry(t *testing.T) {
 		fetch_dentries_2     []proto.Dentry
 		fetch_dentries_3     []proto.Dentry
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -233,7 +238,7 @@ func TestLookup(t *testing.T) {
 		read_only_meta_cache *ReadOnlyMetaCache
 		ino                  uint64
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -287,7 +292,7 @@ func TestEvict(t *testing.T) {
 		err                  error
 		read_only_meta_cache *ReadOnlyMetaCache
 	)
-	read_only_meta_cache, err = NewReadOnlyMetaCache("/test/rdOnlyCache/unit_test/")
+	read_only_meta_cache, err = NewReadOnlyMetaCache(data_path)
 	if err != nil {
 		t.Fatalf("New Read Only Meta Cache Fail")
 	}
@@ -314,4 +319,9 @@ func TestEvict(t *testing.T) {
 
 	// Test background execution when num of expired entrybuffer is more than MinDentryBufferEvictNum
 	read_only_meta_cache.Evict(false)
+}
+
+func TestMain(m *testing.M) {
+	m.Run()
+	os.RemoveAll(data_path)
 }
