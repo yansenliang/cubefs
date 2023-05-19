@@ -245,9 +245,9 @@ run_test() {
     export JENKINS_TEST=1
     ulimit -n 65536
     echo -n "${TPATH}"
-    #go test $MODFLAGS -ldflags "${LDFlags}" -cover ./metanode
+    go test $MODFLAGS -ldflags "${LDFlags}" -cover ./metanode
 
-    go test -cover -v -coverprofile=cover.output $(go list ./... | grep -v depends | grep -v master | grep  -v util) | tee cubefs_unittest.output
+#    go test -cover -v -coverprofile=cover.output $(go list ./... | grep -v depends | grep -v master | grep  -v util) | tee cubefs_unittest.output
     ret=$?
     popd >/dev/null
     exit $ret
