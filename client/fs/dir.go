@@ -324,6 +324,7 @@ func (d *Dir) Lookup(ctx context.Context, req *fuse.LookupRequest, resp *fuse.Lo
 			lookupFromRemote := true
 			if d.super.rdOnlyMetaCache != nil {
 				ino, err = d.super.rdOnlyMetaCache.Lookup(d.info.Inode, req.Name)
+				log.LogDebugf("[ReadOnlyCache][GetDentry] in lookup ")
 				if err == nil || err == DENTRY_NOT_EXIST {
 					lookupFromRemote = false
 				}
@@ -428,8 +429,10 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 			if err == nil {
 				dirCtx.ReadState = READ_FROM_PERSISETNT_CACHE // we have get all entries from readOnlyCache
 				RdOnlyCacheHit = true
+				log.LogDebugf("[ReadOnlyCache][GetDentry] in dir 1")
 			} else {
 				dirCtx.ReadState = READ_FROM_REMOTE // readOnlyCache miss, we should read from the remote
+				log.LogDebugf("[ReadOnlyCache][GetDentry] in dir 2")
 			}
 		} else {
 			dirCtx.ReadState = READ_FROM_REMOTE
@@ -448,7 +451,9 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 	childrenNr := uint64(len(children))
 	if childrenNr == 0 || (dirCtx.Name != "" && childrenNr == 1) {
 		if d.super.rdOnlyMetaCache != nil && !RdOnlyCacheHit {
-			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, []proto.Dentry{}, true)
+			if err := d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, []proto.Dentry{}, true); err != nil {
+				log.LogErrorf("[ReadOnlyCache][PutDentry] : put dentry of ino(%v) into ReadOnlyCache failed.  err(%v)", d.info.Inode, err)
+			}
 		}
 		return make([]fuse.Dirent, 0), io.EOF
 	} else if childrenNr < limit {
@@ -463,7 +468,9 @@ func (d *Dir) ReadDir(ctx context.Context, req *fuse.ReadRequest, resp *fuse.Rea
 		if err != io.EOF {
 			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, false)
 		} else {
-			d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, true)
+			if err := d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, []proto.Dentry{}, true); err != nil {
+				log.LogErrorf("[ReadOnlyCache][PutDentry] : put dentry of ino(%v) into ReadOnlyCache failed.  err(%v)", d.info.Inode, err)
+			}
 		}
 	}
 
@@ -604,7 +611,9 @@ func (d *Dir) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	}
 
 	if d.super.rdOnlyMetaCache != nil && !RdOnlyCacheHit {
-		d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, children, true)
+		if err := d.super.rdOnlyMetaCache.PutDentry(d.info.Inode, []proto.Dentry{}, true); err != nil {
+			log.LogErrorf("[ReadOnlyCache][PutDentry] : put dentry of ino(%v) into ReadOnlyCache failed.  err(%v)", d.info.Inode, err)
+		}
 	}
 
 	if d.super.rdOnlyMetaCache == nil || !RdOnlyCacheHit { // if we open rdOnlyCache and cache hit, we don't prefecth attr

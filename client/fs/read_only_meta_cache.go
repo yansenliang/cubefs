@@ -260,7 +260,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) GetAttr(ino uint64, inode_info *
 	if !ok {
 		log.LogDebugf("inode %d is not exist in read only cache", ino)
 		// fmt.Printf("inode %d is not exist in read only cache", ino)
-		return nil
+		return errors.NewErrorf("inode %d is not exist in read only cache", ino)
 	}
 	err := persistent_meta_cache.ReadAttrFromFile(&persistent_attr.Addr, inode_info)
 	if err != nil {
@@ -465,7 +465,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) BackgroundEvictionEntryBuffer() 
 		persistent_meta_cache.Evict(false)
 		persistent_meta_cache.PersistDentryMtx.Unlock()
 		elapsed := time.Since(start)
-		log.LogDebugf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", persistent_meta_cache.LruList.Len(), elapsed.Nanoseconds())
+		log.LogDebugf("[ReadOnlyCache][BackgroundEvictionEntryBuffer]: Total dentry cache(%d), cost(%d)ns", len(persistent_meta_cache.FullCachedEntryBuffer), elapsed.Nanoseconds())
 	}
 }
 
@@ -537,6 +537,7 @@ func (persistent_meta_cache *ReadOnlyMetaCache) ReadDentryFromFile(address *addr
 		}
 		return err
 	}
+	log.LogDebugf("[ReadOnlyMetaCache][ReadDentryFromFile] xxxxxxxxxxxx .err(%s) ", err.Error())
 	if err := DentryBatchUnMarshal(buf, entries); err != nil {
 		log.LogDebugf("[ReadOnlyMetaCache][ReadDentryFromFile] unmarshal all entries fail")
 		return err
