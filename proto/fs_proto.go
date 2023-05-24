@@ -347,6 +347,7 @@ type CreateDentryRequest struct {
 	Mode        uint32   `json:"mode"`
 	QuotaIds    []uint32 `json:"qids"`
 	VerSeq      uint64   `json:"seq"`
+	OldIno      uint64   `json:"old_ino"`
 }
 
 // TxCreateDentryRequest defines the request to create a dentry.

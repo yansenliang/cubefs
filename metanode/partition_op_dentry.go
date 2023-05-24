@@ -127,6 +127,12 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 		Inode:    req.Inode,
 		Type:     req.Mode,
 	}
+
+	// TODO createDentryEx support snap and tx
+	if req.OldIno != 0 {
+		return mp.createDentryEx(dentry, req.OldIno, p)
+	}
+
 	dentry.setVerSeq(mp.verSeq)
 	log.LogDebugf("action[CreateDentry] mp[%v] with seq %v,dentry [%v]", mp.config.PartitionId, mp.verSeq, dentry)
 	val, err := dentry.Marshal()
@@ -140,6 +146,27 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 	}
 	p.ResultCode = resp.(uint8)
 	return
+}
+
+func (mp *metaPartition) createDentryEx(den *Dentry, oldIno uint64, p *Packet) error {
+	dex := &DentryEx{
+		Dentry: den,
+		OldIno: oldIno,
+	}
+
+	val, err := json.Marshal(dex)
+	if err != nil {
+		return err
+	}
+
+	resp, err := mp.submit(opCreateDentryEx, val)
+	if err != nil {
+		p.PacketErrorWithBody(proto.OpAgain, []byte(err.Error()))
+		return err
+	}
+
+	p.ResultCode = resp.(uint8)
+	return nil
 }
 
 func (mp *metaPartition) TxDeleteDentry(req *proto.TxDeleteDentryRequest, p *Packet) (err error) {

@@ -440,7 +440,11 @@ func (mw *MetaWrapper) txDcreate(tx *Transaction, mp *MetaPartition, parentID ui
 	return
 }
 
-func (mw *MetaWrapper) dcreate(mp *MetaPartition, parentID uint64, name string, inode uint64, mode uint32,
+func (mw *MetaWrapper) dcreate(mp *MetaPartition, parentID uint64, name string, inode uint64, mode uint32, quotaIds []uint32) (status int, err error) {
+	return mw.dcreateEx(mp, parentID, name, inode, 0, mode, quotaIds)
+}
+
+func (mw *MetaWrapper) dcreateEx(mp *MetaPartition, parentID uint64, name string, inode, oldIno uint64, mode uint32,
 	quotaIds []uint32) (status int, err error) {
 	bgTime := stat.BeginStat()
 	defer func() {
@@ -459,6 +463,7 @@ func (mw *MetaWrapper) dcreate(mp *MetaPartition, parentID uint64, name string, 
 		Name:        name,
 		Mode:        mode,
 		QuotaIds:    quotaIds,
+		OldIno:      oldIno,
 		VerSeq:      mw.Client.GetLatestVer(),
 	}
 
