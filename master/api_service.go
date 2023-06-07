@@ -4374,7 +4374,7 @@ func (m *Server) CreateVersion(w http.ResponseWriter, r *http.Request) {
 		err   error
 		vol   *Vol
 		name  string
-		ver   *proto.VolVersionInfo
+		ver   *proto.VersionInfo
 		value string
 		force bool
 	)
@@ -4452,7 +4452,7 @@ func (m *Server) GetVersionInfo(w http.ResponseWriter, r *http.Request) {
 		vol     *Vol
 		name    string
 		verSeq  uint64
-		verInfo *proto.VolVersionInfo
+		verInfo *proto.VersionInfo
 	)
 	if err = r.ParseForm(); err != nil {
 		return

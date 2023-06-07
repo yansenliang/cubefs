@@ -409,6 +409,7 @@ type TxDeleteDentryResponse struct {
 	TxInfo *TransactionInfo `json:"tx"`
 }
 
+
 // DeleteDentryRequest define the request tp delete a dentry.
 type DeleteDentryRequest struct {
 	VolName     string `json:"vol"`

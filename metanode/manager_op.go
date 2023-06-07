@@ -540,7 +540,12 @@ func (m *metadataManager) opDeleteDentry(conn net.Conn, p *Packet,
 	if !m.serveProxy(conn, mp, p) {
 		return
 	}
-	err = mp.DeleteDentry(req, p)
+	if len(p.DirVerList) == 0 {
+		err = mp.DeleteDentry(req, p)
+	} else {
+		err = mp.DeleteDentryByDirVer(req, p)
+	}
+
 	m.respondToClient(conn, p)
 	log.LogDebugf("%s [opDeleteDentry] req: %d - %v, resp: %v, body: %s",
 		remoteAddr, p.GetReqID(), req, p.GetResultMsg(), p.Data)
@@ -2374,6 +2379,9 @@ func (m *metadataManager) commitCreateVersion(VolumeID string, VerSeq uint64, Op
 }
 
 func (m *metadataManager) checkMultiVersionStatus(mp MetaPartition, p *Packet) (err error) {
+	if p.IsDirSnapshotOperate() {
+		return
+	}
 	isOldClient := false
 	defer func() {
 		if (err != nil && !isOldClient) || mp.GetVerSeq() < p.VerSeq {
