@@ -147,7 +147,7 @@ func (o *ObjectNode) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			var currentAction = ActionFromRouteName(mux.CurrentRoute(r).GetName())
-			if !currentAction.IsNone() && o.signatureIgnoredActions.Contains(currentAction) {
+			if !currentAction.IsNone() && o.authIgnoredActions.Contains(currentAction) {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -205,7 +205,7 @@ func (o *ObjectNode) policyCheckMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			action := ActionFromRouteName(mux.CurrentRoute(r).GetName())
-			if !action.IsNone() && o.signatureIgnoredActions.Contains(action) {
+			if !action.IsNone() && o.authIgnoredActions.Contains(action) {
 				next.ServeHTTP(w, r)
 				return
 			}

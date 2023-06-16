@@ -132,24 +132,34 @@ var (
 	enableBlockcache bool
 )
 
+type MasterMgrAPI interface {
+	ReplaceMasterAddresses(addrs []string)
+	AddNode(address string)
+	Leader() (addr string)
+	AdminAPI() *master.AdminAPI
+	ClientAPI() *master.ClientAPI
+	NodeAPI() *master.NodeAPI
+	UserAPI() *master.UserAPI
+	SetLeader(addr string)
+	SetTimeout(timeout uint16)
+	Nodes() (nodes []string)
+}
+
 type ObjectNode struct {
-	domains    []string
-	wildcards  Wildcards
-	listen     string
-	region     string
-	httpServer *http.Server
-	vm         *VolumeManager
-	mc         *master.MasterClient
-	state      uint32
-	wg         sync.WaitGroup
-	userStore  UserInfoStore
-
-	signatureIgnoredActions proto.Actions // signature ignored actions
-	disabledActions         proto.Actions // disabled actions
-
-	encodedRegion []byte
-
-	control common.Control
+	domains            []string
+	wildcards          Wildcards
+	listen             string
+	region             string
+	httpServer         *http.Server
+	vm                 VolumeMgrAPI
+	mc                 MasterMgrAPI
+	state              uint32
+	wg                 sync.WaitGroup
+	userStore          UserInfoStore
+	authIgnoredActions proto.Actions // auth ignored actions
+	disabledActions    proto.Actions // disabled actions
+	encodedRegion      []byte
+	control            common.Control
 }
 
 func (o *ObjectNode) Start(cfg *config.Config) (err error) {
@@ -197,7 +207,7 @@ func (o *ObjectNode) loadConfig(cfg *config.Config) (err error) {
 	for _, actionName := range signatureIgnoredActionNames {
 		action := proto.ParseAction(actionName)
 		if !action.IsNone() {
-			o.signatureIgnoredActions = append(o.signatureIgnoredActions, action)
+			o.authIgnoredActions = append(o.authIgnoredActions, action)
 			log.LogInfof("loadConfig: signature ignored action: %v", action)
 		}
 	}
@@ -267,7 +277,6 @@ func handleStart(s common.Server, cfg *config.Config) (err error) {
 		return
 	}
 	// Get cluster info from master
-
 	var ci *proto.ClusterInfo
 	if ci, err = o.mc.AdminAPI().GetClusterInfo(); err != nil {
 		return
