@@ -409,7 +409,6 @@ type TxDeleteDentryResponse struct {
 	TxInfo *TransactionInfo `json:"tx"`
 }
 
-
 // DeleteDentryRequest define the request tp delete a dentry.
 type DeleteDentryRequest struct {
 	VolName     string `json:"vol"`
@@ -433,7 +432,8 @@ type DeleteDentryResponse struct {
 
 // BatchDeleteDentryResponse defines the response to the request of deleting a dentry.
 type BatchDeleteDentryResponse struct {
-	Items []*struct {
+	ParentID uint64 `json:"pino"`
+	Items    []*struct {
 		Inode  uint64 `json:"ino"`
 		Status uint8  `json:"status"`
 	} `json:"items"`
