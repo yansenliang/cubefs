@@ -17,6 +17,7 @@ package raft
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/rand"
 	"sync"
 	"time"
@@ -608,6 +609,50 @@ func (rs *RaftServer) SetMsgFilterFunc(id uint64, msgFilterFunc MsgFilterFunc) {
 
 	if ok {
 		raft.raftConfig.MsgFilter = msgFilterFunc
+	}
+	return
+}
+
+func (rs *RaftServer) SetReplicaModeByNodeId(id uint64, replicaType SocketType)  error{
+	tran := rs.config.transport.(*MultiTransport)
+	sender, ok := tran.replicate.senders[id]
+	if !ok {
+		return fmt.Errorf("can not find node[%d]", id)
+	}
+	sender.changeSocketType(replicaType)
+	return nil
+}
+
+func (rs *RaftServer) SetAllReplicaMode(replicaType SocketType)  error{
+	tran := rs.config.transport.(*MultiTransport)
+	for _, sender := range tran.replicate.senders {
+		sender.changeSocketType(replicaType)
+	}
+	return nil
+}
+
+func (rs *RaftServer) SetReplicaModeCfg(replicaType SocketType)  error{
+	rs.config.TransportConfig.ReplicaMode = replicaType
+	err := rs.SetAllReplicaMode(replicaType)
+	return err
+}
+
+func (rs *RaftServer) GetReplConnInfoByNodeId(nodeId uint64) (tcpCnt, rdmaCnt uint8){
+	replTran := rs.config.transport.(*MultiTransport).replicate
+	replTran.mu.RLock()
+	defer replTran.mu.RUnlock()
+	sender, _ := replTran.senders[nodeId]
+	if sender == nil {
+		return
+	}
+	for _, connType := range sender.senderType {
+		if connType.IsRDMAMode() {
+			rdmaCnt++
+		}
+
+		if connType.IsTCPMode() {
+			tcpCnt++
+		}
 	}
 	return
 }

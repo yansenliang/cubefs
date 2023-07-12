@@ -16,9 +16,11 @@ package proto
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"sort"
 
+	"github.com/cbnet/cbrdma"
 	"github.com/tiglabs/raft/logger"
 	"github.com/tiglabs/raft/util"
 )
@@ -192,6 +194,18 @@ func (e *Entry) Size() uint64 {
 	return entry_header + uint64(len(e.Data))
 }
 
+func (e *Entry) EncodeBuffer(buf []byte) error {
+	if len(buf) < int(e.Size()) {
+		return fmt.Errorf("no enough buffer, expect:%d, now:%d", e.Size(), len(buf))
+	}
+
+	buf[0] = byte(e.Type)
+	binary.BigEndian.PutUint64(buf[1:], e.Term)
+	binary.BigEndian.PutUint64(buf[9:], e.Index)
+	copy(buf[entry_header:], e.Data)
+	return nil
+}
+
 func (e *Entry) Encode(w io.Writer) error {
 	buf := getByteSlice()
 	defer func() {
@@ -240,13 +254,10 @@ func (m *Message) Size() uint64 {
 	return size
 }
 
-func (m *Message) Encode(w io.Writer) error {
-
-	buf := getByteSlice()
-	defer func() {
-		returnByteSlice(buf)
-	}()
-
+func (m *Message) EncodeHeader(buf []byte) error {
+	if len(buf) < int(message_header + 4) {
+		return fmt.Errorf("buff not engouh expect:%d, now:%d", message_header + 4, len(buf))
+	}
 	binary.BigEndian.PutUint32(buf, uint32(m.Size()))
 	buf[4] = version1
 	buf[5] = byte(m.Type)
@@ -268,6 +279,19 @@ func (m *Message) Encode(w io.Writer) error {
 	binary.BigEndian.PutUint64(buf[48:], m.LogTerm)
 	binary.BigEndian.PutUint64(buf[56:], m.Index)
 	binary.BigEndian.PutUint64(buf[64:], m.Commit)
+	return nil
+}
+
+func (m *Message) Encode(w io.Writer) error {
+
+	buf := getByteSlice()
+	defer func() {
+		returnByteSlice(buf)
+	}()
+
+	if err := m.EncodeHeader(buf); err != nil {
+		return err
+	}
 	if _, err := w.Write(buf[0 : message_header+4]); err != nil {
 		return err
 	}
@@ -300,21 +324,10 @@ func (m *Message) Encode(w io.Writer) error {
 	return nil
 }
 
-func (m *Message) Decode(r *util.BufferReader) error {
-	var (
-		datas []byte
-		err   error
-	)
-	if datas, err = r.ReadFull(4); err != nil {
-		return err
-	}
-	dataLen := int(binary.BigEndian.Uint32(datas))
-	if datas, err = r.ReadFull(dataLen); err != nil {
-		return err
-	}
-
+func (m *Message) DecodeFromBuffer(datas []byte) error {
 	if len(datas) < int(message_header) {
-		logger.Warn("message Decode: the length of data(%v) less than header length(%v) read length(%v)", len(datas), message_header, dataLen)
+		logger.Warn("message Decode: the length of data(%v) less than header length(%v)" ,len(datas), message_header)
+		return fmt.Errorf("error package")
 	}
 
 	ver := datas[0]
@@ -355,6 +368,28 @@ func (m *Message) Decode(r *util.BufferReader) error {
 	return nil
 }
 
+func (m *Message) Decode(r *util.BufferReader) error {
+	var (
+		datas []byte
+		err   error
+	)
+	if datas, err = r.ReadFull(4); err != nil {
+		return err
+	}
+	dataLen := int(binary.BigEndian.Uint32(datas))
+	if datas, err = r.ReadFull(dataLen); err != nil {
+		return err
+	}
+
+	if err = m.DecodeFromBuffer(datas); err != nil {
+		logger.Error("recv datalen:%d, buff len:%d raft maybe:%d, err package",dataLen, len(datas), GetRaftId(datas))
+		panic("recv data error")
+		return err
+	}
+
+	return nil
+}
+
 func EncodeHBContext(ctx HeartbeatContext) (buf []byte) {
 	sort.Slice(ctx, func(i, j int) bool {
 		return ctx[i].ID < ctx[j].ID
@@ -392,4 +427,73 @@ func DecodeHBContext(buf []byte) (ctx HeartbeatContext) {
 		prev = id + prev
 	}
 	return
+}
+
+func GetDataType(datas []byte) MsgType {
+	var msgType MsgType
+	ver := datas[4]
+	if ver == version1 {
+		msgType = MsgType(datas[5])
+	}
+	return msgType
+}
+
+func GetRaftId(datas []byte) uint64 {
+	var id uint64
+	if len(datas) < 24 {
+		return 0
+	}
+	ver := datas[4]
+	if ver == version1 {
+		id = binary.BigEndian.Uint64(datas[16:])
+	}
+	return id
+}
+
+func (m *Message) DecodeForRDMA(buffer []byte) (err error){
+	//datas := make([]byte, len(buf))
+	//copy(datas, buf)
+	//ucxnet_go.Free(buf)
+	datas := buffer[4:]
+	if err = m.DecodeFromBuffer(datas); err != nil {
+		logger.Error("buff len:%d raft maybe:%d, err package", len(datas), GetRaftId(datas))
+		panic("recv data error")
+		return err
+	}
+	return nil
+}
+
+func (m *Message) EncodeForRDMA(conn *cbrdma.RDMAConn) (err error) {
+	var buf []byte
+	buffSize := int(m.Size() + 4)
+	if buf, err = conn.GetSendBuf(buffSize, 0); err != nil {
+		return
+	}
+
+	if len(buf) < buffSize {
+		conn.Send(buf, 0)
+		return fmt.Errorf("conn get buffer size failed")
+	}
+	start := int(message_header + 4)
+
+	if int(buffSize) > len(buf) {
+		conn.Send(buf, 0)
+		return fmt.Errorf("buf not enough, expect:%d, now:%d", m.Size(), len(buf))
+	}
+
+	_ = m.EncodeHeader(buf)
+	binary.BigEndian.PutUint32(buf[start:], uint32(len(m.Entries)))
+	start += 4
+	for i := 0; i < len(m.Entries); i++ {
+		binary.BigEndian.PutUint32(buf[start:], uint32(m.Entries[i].Size()))
+		start += 4
+		m.Entries[i].EncodeBuffer(buf[start:])
+		start += int(m.Entries[i].Size())
+	}
+
+	if m.Context != nil {
+		copy(buf[start:], m.Context)
+	}
+
+	return conn.Send(buf, buffSize)
 }

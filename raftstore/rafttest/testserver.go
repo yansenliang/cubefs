@@ -17,6 +17,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"github.com/cubefs/cubefs/raftstore"
 	"math"
 	"math/rand"
 	"os"
@@ -86,6 +87,7 @@ func init() {
 type replAddr struct {
 	heart string
 	repl  string
+	replRDMA string
 }
 
 type nodeManager struct {
@@ -140,18 +142,38 @@ func (nm *nodeManager) AllNodes() []uint64 {
 }
 
 func (nm *nodeManager) NodeAddress(nodeID uint64, stype raft.SocketType) (string, error) {
-	addr := nm.allAddrs[nodeID]
-	if stype == raft.HeartBeat {
-		return addr.heart, nil
+	addr, ok := nm.allAddrs[nodeID]
+	if !ok {
+		return "", fmt.Errorf("node[%d] not exist", nodeID)
 	}
-	return addr.repl, nil
+	switch stype {
+	case raft.HeartBeat:
+		return addr.heart, nil
+	case raft.Replicate:
+		return addr.repl, nil
+	case raft.ReplicateRDMA:
+		return addr.replRDMA, nil
+	default:
+		return "", fmt.Errorf("node[%d] wrong type:%d", nodeID, stype)
+	}
 }
 
 func (nm *nodeManager) addNodeAddr(p peer, replicaPort string, heartPort string) {
 	nm.nodes[p.ID] = 1
+	rPort, _ := strconv.Atoi(replicaPort)
 	nm.allAddrs[p.ID] = replAddr{
-		heart: p.Addr + ":" + replicaPort,
-		repl:  p.Addr + ":" + heartPort,
+		heart: p.Addr + ":" + heartPort,
+		repl:  p.Addr + ":" + replicaPort,
+		replRDMA: p.Addr + ":" + strconv.Itoa(rPort + raftstore.DefaultRDMAPortOffset),
+	}
+}
+
+func (nm *nodeManager) AddNodeWithAllPorts(nodeID uint64, addr string, heartbeat, replicate, replcaRDMA int) {
+	nm.nodes[nodeID] = 1
+	nm.allAddrs[nodeID] = replAddr{
+		heart: addr + ":" + strconv.Itoa(heartbeat),
+		repl:  addr + ":" + strconv.Itoa(replicate),
+		replRDMA: addr + ":" + strconv.Itoa(replcaRDMA),
 	}
 }
 
@@ -184,7 +206,7 @@ func initTestServer(peers []proto.Peer, isLease, clear bool, groupNum int, testM
 		}
 		mode := getConsistencyMode(testMode, p.ID)
 		raftConfig := &raft.RaftConfig{Peers: peers, Leader: 0, Term: 0, Mode: mode}
-		rs = append(rs, createRaftServer(p.ID, isLease, clear, groupNum, raftConfig))
+		rs = append(rs, createRaftServer(p.ID, isLease, clear, groupNum, raftConfig, raft.Replicate))
 	}
 	return rs
 }
@@ -212,12 +234,12 @@ func initTestServerWithMsgFilter(peers []proto.Peer, isLease, clear bool, groupN
 			os.RemoveAll(path.Join(getTestPath(), strconv.FormatUint(p.ID, 10)))
 		}
 		raftConfig := &raft.RaftConfig{Peers: peers, Leader: 0, Term: 0, Mode: mode, MsgFilter: msgFilter}
-		rs = append(rs, createRaftServer(p.ID, isLease, clear, groupNum, raftConfig))
+		rs = append(rs, createRaftServer(p.ID, isLease, clear, groupNum, raftConfig, raft.Replicate))
 	}
 	return rs
 }
 
-func createRaftServer(nodeId uint64, isLease, clear bool, groupNum int, raftConfig *raft.RaftConfig) *testServer {
+func createRaftServer(nodeId uint64, isLease, clear bool, groupNum int, raftConfig *raft.RaftConfig, replicaType raft.SocketType) *testServer {
 	config := raft.DefaultConfig()
 	config.NodeID = nodeId
 	config.TickInterval = tickInterval
@@ -226,8 +248,10 @@ func createRaftServer(nodeId uint64, isLease, clear bool, groupNum int, raftConf
 	config.LeaseCheck = isLease
 	config.HeartbeatAddr = resolver.allAddrs[nodeId].heart
 	config.ReplicateAddr = resolver.allAddrs[nodeId].repl
+	config.ReplicateRDMAAddr = resolver.allAddrs[nodeId].replRDMA
 	config.Resolver = resolver
 	config.RetainLogs = 0
+	config.TransportConfig.ReplicaMode   = replicaType
 
 	rs, err := raft.NewRaftServer(config)
 	if err != nil {
@@ -346,8 +370,8 @@ func getCurrentNanoTime() int64 {
 	return time.Now().UnixNano()
 }
 
-func initRaftLog(logDir string) {
-	raftLogPath := path.Join("/cfs/log/rafttest/", "logs")
+func initRaftLog(logDir string) (logHandler *log.Log){
+	raftLogPath := path.Join(logDir, "logs")
 	os.RemoveAll(raftLogPath)
 	_, err := os.Stat(raftLogPath)
 	if err != nil {
@@ -364,7 +388,7 @@ func initRaftLog(logDir string) {
 		return
 	}
 	logger.SetLogger(raftLog)
-	return
+	return raftLog
 }
 
 func output(format string, a ...interface{}) {

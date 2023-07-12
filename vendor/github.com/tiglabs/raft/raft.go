@@ -393,6 +393,35 @@ func (s *raft) runApply() {
 	}
 }
 
+func (s *raft) processRecvMsg(m *proto.Message) {
+	if s.raftConfig.MsgFilter(m) {
+		proto.ReturnMessage(m)
+		return
+	} else if _, ok := s.raftFsm.replicas[m.From]; ok || (!m.IsResponseMsg() && m.Type != proto.ReqMsgVote) ||
+		(m.Type == proto.ReqMsgVote && s.raftFsm.raftLog.isUpToDate(m.Index, m.LogTerm, 0, 0)) {
+		switch m.Type {
+		case proto.ReqMsgHeartBeat:
+			if s.raftFsm.leader == m.From && m.From != s.config.NodeID {
+				s.raftFsm.Step(m)
+			}
+		case proto.RespMsgHeartBeat:
+			if s.raftFsm.leader == s.config.NodeID && m.From != s.config.NodeID {
+				s.raftFsm.Step(m)
+			}
+		default:
+			s.raftFsm.Step(m)
+		}
+		var respErr = true
+		if m.Type == proto.RespMsgAppend && m.Reject != true {
+			respErr = false
+		}
+		s.maybeChange(respErr)
+	} else if logger.IsEnableWarn() && m.Type != proto.RespMsgHeartBeat {
+		logger.Warn("[raft][%v term: %d] ignored a %s message without the replica from [%v term: %d].", s.raftFsm.id, s.raftFsm.term, m.Type, m.From, m.Term)
+	}
+	return
+}
+
 func (s *raft) run() {
 	defer func() {
 		if s.containsUpdate() {
@@ -411,6 +440,7 @@ func (s *raft) run() {
 	s.maybeChange(true)
 	loopCount := 0
 	var readyc chan struct{}
+	recvMsgs := make([]*proto.Message, defaultRecvcBatch)
 	for {
 		if readyc == nil && s.containsUpdate() {
 			readyc = s.readyc
@@ -486,30 +516,20 @@ func (s *raft) run() {
 
 		case m := <-s.recvc:
 			// MsgFilter 仅用于单测中制造异常场景，正式代码中不要赋值！
-			if s.raftConfig.MsgFilter(m) {
-				proto.ReturnMessage(m)
-				continue
-			} else if _, ok := s.raftFsm.replicas[m.From]; ok || (!m.IsResponseMsg() && m.Type != proto.ReqMsgVote) ||
-				(m.Type == proto.ReqMsgVote && s.raftFsm.raftLog.isUpToDate(m.Index, m.LogTerm, 0, 0)) {
-				switch m.Type {
-				case proto.ReqMsgHeartBeat:
-					if s.raftFsm.leader == m.From && m.From != s.config.NodeID {
-						s.raftFsm.Step(m)
-					}
-				case proto.RespMsgHeartBeat:
-					if s.raftFsm.leader == s.config.NodeID && m.From != s.config.NodeID {
-						s.raftFsm.Step(m)
-					}
-				default:
-					s.raftFsm.Step(m)
-				}
-				var respErr = true
-				if m.Type == proto.RespMsgAppend && m.Reject != true {
-					respErr = false
-				}
-				s.maybeChange(respErr)
-			} else if logger.IsEnableWarn() && m.Type != proto.RespMsgHeartBeat {
-				logger.Warn("raft[%v] [term: %d] ignored a %s message without the replica from [%v term: %d].", s.raftFsm.id, s.raftFsm.term, m.Type, m.From, m.Term)
+			cnt := 0
+			recvMsgs[cnt] = m
+			cnt++
+			recvcLen := len(s.recvc)
+			for i := 0; i < recvcLen && cnt < defaultRecvcBatch; i++ {
+				m = <-s.recvc
+				recvMsgs[cnt] = m
+				cnt++
+			}
+			if recvcLen > 30 {
+				logger.Warn("raft[%d] recvc c len:%d ",s.raftFsm.id,  recvcLen)
+			}
+			for i := 0; i < cnt; i++ {
+				s.processRecvMsg(recvMsgs[i])
 			}
 
 		case snapReq := <-s.snapRecvc:

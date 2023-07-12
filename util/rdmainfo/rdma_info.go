@@ -468,7 +468,7 @@ func (info *RDMASysInfo) updateCounter() {
 			continue
 		}
 		info.StaticInfo.DeltaCounters[i] = value - info.StaticInfo.Counters[i]
-		tbObj.SetWithValue(int64(info.StaticInfo.DeltaCounters[i]), nil)
+		tbObj.SetWithCount(int64(info.StaticInfo.DeltaCounters[i]), nil)
 		info.StaticInfo.Counters[i] = value
 		info.checkMonitor(info.StaticInfo.DeltaCounters[i], info.StaticInfo.CounterUMPKey[i], &info.StaticInfo.Monitors[i], info.counterErrCb)
 	}
@@ -481,7 +481,7 @@ func (info *RDMASysInfo) updateDataInfo() {
 		tbObj := exporter.NewModuleTP(info.StaticInfo.CounterUMPKey[counterIndex])
         info.StaticInfo.DeltaCounters[counterIndex] = info.dataCounterV[i] - info.StaticInfo.Counters[counterIndex]
         info.StaticInfo.Counters[counterIndex] = info.dataCounterV[i]
-		tbObj.SetWithValue(int64(info.StaticInfo.DeltaCounters[counterIndex] >> 20), nil)
+		tbObj.SetWithCount(int64(info.StaticInfo.DeltaCounters[counterIndex] >> 20), nil)
 		info.checkMonitor(info.StaticInfo.DeltaCounters[counterIndex], info.StaticInfo.CounterUMPKey[counterIndex],
 							&info.StaticInfo.Monitors[counterIndex], info.dataErrCb)
     }

@@ -166,6 +166,19 @@ func (m mockRaftStore) RaftPath() string {
 	return ""
 }
 
+func (s *mockRaftStore) SetReplicaMode(id uint64, replicaType raft.SocketType) {
+	return
+}
+
+func (s *mockRaftStore) SetAllReplicaMode(replicaType raft.SocketType) {
+	return
+}
+
+func (s *mockRaftStore) GetReplConnInfoByNodeId(nodeID uint64)(tcpCnt, rdmaCnt uint8) {
+	return 0, 0
+}
+
+
 func NewMockRaftStore() raftstore.RaftStore {
 	return &mockRaftStore{
 		cfg: raft.DefaultConfig(),

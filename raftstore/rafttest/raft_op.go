@@ -179,7 +179,7 @@ func (leadServer *testServer) addMember(nodeId uint64, mode raft.ConsistencyMode
 	printLog(w, fmt.Sprintf("Add new node[%v]", nodeId))
 	leader, term := leadServer.raft.LeaderTerm(1)
 	raftConfig := &raft.RaftConfig{Peers: peers, Leader: leader, Term: term, Mode: mode}
-	newServer = createRaftServer(nodeId, true, true, 1, raftConfig)
+	newServer = createRaftServer(nodeId, true, true, 1, raftConfig, raft.Replicate)
 	// add node
 	resolver.addNode(nodeId, 0)
 	err := leadServer.sm[1].AddNode(proto.Peer{ID: nodeId})
@@ -402,7 +402,7 @@ func restartAllServers(ts []*testServer, leader, term uint64, clear bool) []*tes
 	ret := make([]*testServer, 0)
 	for _, s := range ts {
 		raftConfig := &raft.RaftConfig{Peers: s.peers, Leader: leader, Term: term, Mode: s.mode}
-		ns := createRaftServer(s.nodeID, s.isLease, clear, 1, raftConfig)
+		ns := createRaftServer(s.nodeID, s.isLease, clear, 1, raftConfig, raft.Replicate)
 		ret = append(ret, ns)
 	}
 	return ret
@@ -421,7 +421,7 @@ func restartLeader(servers []*testServer, w *bufio.Writer) (leaderServer *testSe
 func startServer(servers []*testServer, newServer *testServer, w *bufio.Writer) (leaderServer *testServer, newServers []*testServer) {
 	output("start raft server: %v", newServer.nodeID)
 	raftConfig := &raft.RaftConfig{Peers: peers, Leader: 0, Term: 0, Mode: newServer.mode}
-	newServer = createRaftServer(newServer.nodeID, true, false, 1, raftConfig)
+	newServer = createRaftServer(newServer.nodeID, true, false, 1, raftConfig, raft.Replicate)
 	printLog(w, fmt.Sprintf("start raft server(%v)", newServer.nodeID))
 	newServers = append(servers, newServer)
 	leaderServer = waitElect(newServers, 1, w)

@@ -47,6 +47,8 @@ const (
 	defaultSizePerMsg      = 4 * MB
 	defaultHeartbeatAddr   = ":3016"
 	defaultReplicateAddr   = ":2015"
+	defaultFailBackUCXSec  = 3600
+	defaultRecvcBatch      = 128
 )
 
 // QuorumHandler defines the interface necessary to calculate the quorum value.
@@ -224,6 +226,13 @@ type TransportConfig struct {
 	// ReplicateAddr is the Replation port.
 	// The default value is 2015.
 	ReplicateAddr string
+
+	//rdma listen
+	ReplicateRDMAAddr string
+
+	//queue num default rdma worker num
+	QueueCnt      uint64
+
 	// 发送队列大小
 	SendBufferSize int
 	//复制并发数(node->node)
@@ -233,6 +242,8 @@ type TransportConfig struct {
 	MaxSnapConcurrency int
 	// This parameter is required.
 	Resolver SocketResolver
+	// This parameter is option,// 1 net, 2 ucx
+	ReplicaMode   SocketType
 }
 
 // RaftConfig contains the parameters to create a raft.

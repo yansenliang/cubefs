@@ -128,10 +128,16 @@ func (br *BufferReader) Grow(n int) {
 
 type BufferWriter struct {
 	*bufio.Writer
+	wr io.Writer
 }
 
 func NewBufferWriter(wr io.Writer, size int) *BufferWriter {
 	return &BufferWriter{
 		Writer: bufio.NewWriterSize(wr, size),
+		wr: wr,
 	}
+}
+
+func (buffW *BufferWriter)GetWriter() (io.Writer) {
+	return buffW.wr
 }

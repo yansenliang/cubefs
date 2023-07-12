@@ -20,7 +20,6 @@ import (
 	"github.com/cubefs/cubefs/util/topology"
 	"github.com/cbnet/cbrdma"
 	rdmaInfo "github.com/cubefs/cubefs/util/rdmainfo"
-	"github.com/cubefs/cubefs/util/statinfo"
 	"os"
 	"path"
 	"strconv"

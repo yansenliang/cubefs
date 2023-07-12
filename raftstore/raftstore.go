@@ -37,8 +37,10 @@ type RaftStore interface {
 
 	SetSyncWALOnUnstable(enable bool)
 	IsSyncWALOnUnstable() (enabled bool)
-
 	RaftPath() string
+	SetReplicaMode(id uint64, replicaType raft.SocketType)
+	SetAllReplicaMode(replicaType raft.SocketType)
+	GetReplConnInfoByNodeId( uint64)(tcpCnt, rdmaCnt uint8)
 }
 
 type raftStore struct {
@@ -182,4 +184,25 @@ func (s *raftStore) SetSyncWALOnUnstable(enable bool) {
 func (s *raftStore) IsSyncWALOnUnstable() (enabled bool) {
 	enabled = s.raftServer.IsSyncWALOnUnstable()
 	return
+}
+
+func (s *raftStore) SetReplicaMode(id uint64, replicaType raft.SocketType) {
+	if s.raftServer != nil {
+		s.raftServer.SetReplicaModeByNodeId(id, replicaType)
+	}
+	return
+}
+
+func (s *raftStore) SetAllReplicaMode(replicaType raft.SocketType) {
+	if s.raftServer != nil {
+		s.raftServer.SetAllReplicaMode(replicaType)
+	}
+	return
+}
+
+func (s *raftStore) GetReplConnInfoByNodeId(nodeID uint64)(tcpCnt, rdmaCnt uint8) {
+	if s.raftServer != nil {
+		return s.raftServer.GetReplConnInfoByNodeId(nodeID)
+	}
+	return 0, 0
 }

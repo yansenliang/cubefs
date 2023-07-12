@@ -25,6 +25,7 @@ import (
 const (
 	DefaultHeartbeatPort     = 5901
 	DefaultReplicaPort       = 5902
+	DefaultRDMAPortOffset    = 10000
 	DefaultNumOfLogsToRetain = 20000
 	DefaultTickInterval      = 300
 	DefaultElectionTick      = 3

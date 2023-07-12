@@ -35,6 +35,7 @@ type SocketType byte
 const (
 	HeartBeat SocketType = 0
 	Replicate SocketType = 1
+	ReplicateRDMA SocketType = 4
 )
 
 func (t SocketType) String() string {
@@ -43,8 +44,31 @@ func (t SocketType) String() string {
 		return "HeartBeat"
 	case 1:
 		return "Replicate"
+	case 4:
+		return "ReplicateRDMA"
 	}
 	return "unkown"
+}
+
+func (t SocketType) IsTCPMode() bool {
+	if t == HeartBeat || t == Replicate {
+		return true
+	}
+	return false
+}
+
+func (t SocketType) IsRDMAMode() bool {
+	if t == ReplicateRDMA {
+		return true
+	}
+	return false
+}
+
+func (t SocketType) IsDataType() bool {
+	if t == Replicate || t == ReplicateRDMA {
+		return true
+	}
+	return false
 }
 
 // The SocketResolver interface is supplied by the application to resolve NodeID to net.Addr addresses.

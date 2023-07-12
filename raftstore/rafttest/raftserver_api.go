@@ -6,7 +6,9 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/tiglabs/raft"
 )
@@ -21,6 +23,7 @@ func (s *testServer) startHttpService(host string, listen string) {
 	http.HandleFunc("/data/submit", s.batchPutData)
 	http.HandleFunc("/data/bigSubmit", s.putBigData)
 	http.HandleFunc("/data/localbigSubmit", s.localBigData)
+	http.HandleFunc("/data/localMixSubmit", s.localMixData)
 	http.HandleFunc("/data/get", s.getData)
 	http.HandleFunc("/raft/addMember", s.addRaftMember)
 	http.HandleFunc("/raft/delMember", s.delRaftMember)
@@ -28,8 +31,9 @@ func (s *testServer) startHttpService(host string, listen string) {
 	http.HandleFunc("/raft/leader", s.getLeader)
 	http.HandleFunc("/raft/tryLeader", s.tryLeader)
 	http.HandleFunc("/raft/create", s.createRaft)
+	http.HandleFunc("/raft/setReplicaMode", s.setReplicaMode)
 
-	addr := fmt.Sprintf("%v:%v", host, listen)
+	addr := fmt.Sprintf(":%v",  listen)
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
 		panic(err)
@@ -83,24 +87,7 @@ func (s *testServer) batchPutData(w http.ResponseWriter, r *http.Request) {
 
 var begin int32
 
-func (s *testServer) localBigData(w http.ResponseWriter, r *http.Request) {
-	var (
-		size            int
-		raftId          int
-		exeMin          int
-		err             error
-		rst             string
-		goroutingNumber int
-	)
-
-	if !atomic.CompareAndSwapInt32(&begin, 0, 1) {
-		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("last local big data test is running.")})
-		return
-	}
-	defer func() {
-		atomic.CompareAndSwapInt32(&begin, 1, 0)
-	}()
-
+func (s *testServer) ParserParam(w http.ResponseWriter, r *http.Request) ( size, raftId, exeMin, goroutingNumber int, err error) {
 	if err = r.ParseForm(); err != nil {
 		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("parse form err: %v", err)})
 		return
@@ -140,6 +127,31 @@ func (s *testServer) localBigData(w http.ResponseWriter, r *http.Request) {
 		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("parse goroutings[%v] err: %v", goroutingNumber, err)})
 		return
 	}
+	return
+}
+
+func (s *testServer) localBigData(w http.ResponseWriter, r *http.Request) {
+	var (
+		size            int
+		raftId          int
+		exeMin          int
+		err             error
+		rst             string
+		goroutingNumber int
+	)
+
+	if !atomic.CompareAndSwapInt32(&begin, 0, 1) {
+		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("last local big data test is running.")})
+		return
+	}
+	defer func() {
+		atomic.CompareAndSwapInt32(&begin, 1, 0)
+	}()
+
+	size, raftId, exeMin, goroutingNumber, err = s.ParserParam(w, r)
+	if err != nil {
+		return
+	}
 
 	output("local bigdata submit: raftid-%d, datasize-%d, execute min-%d", raftId, size, exeMin)
 
@@ -151,6 +163,41 @@ func (s *testServer) localBigData(w http.ResponseWriter, r *http.Request) {
 
 	sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("raft[%v] put data success:%s", raftId, rst)})
 
+	return
+}
+
+func (s *testServer) localMixData(w http.ResponseWriter, r *http.Request) {
+	var (
+		size            int
+		raftId          int
+		exeMin          int
+		err             error
+		rst             string
+		goroutingNumber int
+	)
+
+	if !atomic.CompareAndSwapInt32(&begin, 0, 1) {
+		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("last local big data test is running.")})
+		return
+	}
+	defer func() {
+		atomic.CompareAndSwapInt32(&begin, 1, 0)
+	}()
+
+	size, raftId, exeMin, goroutingNumber, err = s.ParserParam(w, r)
+	if err != nil {
+		return
+	}
+
+	fmt.Printf("local mixdata submit: raftid-%d, datasize-%d, execute min-%d\n", raftId, size, exeMin)
+
+	if err, rst = s.localPutMixData(uint64(raftId), size, exeMin, goroutingNumber); err != nil {
+		sendReply(w, r, &HTTPReply{Code: 1, Msg: fmt.Sprintf("raft[%v] put data err: %v", raftId, err),
+			Data: s.raft.Status(uint64(raftId)).Leader})
+		return
+	}
+
+	sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("raft[%v] put data success:%s", raftId, rst)})
 	return
 }
 
@@ -185,6 +232,41 @@ func (s *testServer) putBigData(w http.ResponseWriter, r *http.Request) {
 	}
 	sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("raft[%v] put data success", raftId)})
 	return
+}
+
+func (leadServer *testServer) localPutMixData(raftId uint64, bitSize int, exeMin int, goroutingNumber int) (error, string) {
+	var rst string
+	//var err error
+	var totalCount, totalSucOp, totalFailOp int64
+	results := make([]resultTest, goroutingNumber)
+	var wg sync.WaitGroup
+	sec := exeMin * 60
+	start := time.Now()
+	for i := 0; i < goroutingNumber; i++ {
+		wg.Add(1)
+		go func(rest *resultTest) {
+			leadServer.sm[raftId].localConstructMixData(bitSize, exeMin, rest)
+			wg.Done()
+		}(&results[i])
+	}
+	wg.Wait()
+	end := time.Now()
+	for i := 0; i < goroutingNumber; i++ {
+		/*
+			err = resuts[i].err
+			if err != nil {
+				return fmt.Errorf("put data err: %v", err), nil
+
+			}
+		*/
+		totalCount += results[i].totalCount
+		totalSucOp += results[i].sucOp
+		totalFailOp += results[i].failOp
+	}
+	rst = fmt.Sprintf("local put bigsubmit: start-%v, end-%v; size-%d, executeTime-%dmin, success-%d, fail-%d, tps-%d\n",
+		start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), bitSize, exeMin, totalSucOp, totalFailOp, totalSucOp/int64(sec))
+
+	return nil, rst
 }
 
 func (s *testServer) getData(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +379,40 @@ func (s *testServer) addRaftMember(w http.ResponseWriter, r *http.Request) {
 
 func (s *testServer) delRaftMember(w http.ResponseWriter, r *http.Request) {
 	// todo
+}
+
+func (s *testServer) setReplicaMode(w http.ResponseWriter, r *http.Request) {
+	var (
+		nodeId uint64
+		mode int
+		err    error
+		modeType raft.SocketType
+	)
+
+	modeType = raft.ReplicateRDMA
+	nodeId, err = parseRaftId(r)
+	if  err != nil || nodeId == 0 {
+		nodeId = math.MaxUint64
+	}
+	modeStr := r.FormValue("mode")
+	mode , err = strconv.Atoi(modeStr)
+	if err != nil {
+		sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("Can not parse mode :%v", mode )})
+		return
+	}
+	if mode != 0 {
+		modeType = raft.SocketType(mode)
+	}
+
+	if nodeId == math.MaxUint64 {
+		//enable all
+		s.raft.SetAllReplicaMode(modeType)
+		sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("set all node replica mode[%s] success", modeType.String())})
+		return
+	}
+	err = s.raft.SetReplicaModeByNodeId(nodeId, modeType)
+	sendReply(w, r, &HTTPReply{Code: 0, Msg: fmt.Sprintf("set node[%d] replica mode[%s] :%v", nodeId, modeType.String(), err)})
+	return
 }
 
 func parseRaftId(r *http.Request) (id uint64, err error) {

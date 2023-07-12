@@ -374,7 +374,7 @@ func startDaemon(role string) error {
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 	}
 
-	if role == RoleMeta || role == RoleData {
+	if role == proto.RoleMeta || role == proto.RoleData {
 		env = append(env, "GODEBUG=cgocheck=0")
 		env = append(env, fmt.Sprintf("LD_LIBRARY_PATH=%s:%s", filepath.Dir(cmdPath), ldPathValue))
 	}

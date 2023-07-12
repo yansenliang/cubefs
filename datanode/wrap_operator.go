@@ -1779,68 +1779,6 @@ func (s *DataNode) forwardToRaftLeaderWithTimeOut(dp *DataPartition, p *repl.Pac
 	return
 }
 
-func (s *DataNode) rateLimit(p *repl.Packet, c net.Conn) {
-	if !isRateLimitOn {
-		return
-	}
-
-	// ignore rate limit if request is from cluster internal nodes
-	addrSlice := strings.Split(c.RemoteAddr().String(), ":")
-	_, isInternal := clusterMap[addrSlice[0]]
-	if isInternal {
-		return
-	}
-
-	ctx := context.Background()
-	// request rate limit for entire data node
-	if reqRateLimit > 0 {
-		reqRateLimiter.Wait(ctx)
-	}
-
-	// request rate limit for opcode
-	limiter, ok := reqOpRateLimiterMap[p.Opcode]
-	if ok {
-		limiter.Wait(ctx)
-	}
-
-	partition, ok := p.Object.(*DataPartition)
-	if !ok {
-		return
-	}
-
-	// request rate limit for volume & opcode
-	opRatelimiterMap, ok := reqVolOpRateLimiterMap[partition.volumeID]
-	if ok {
-		limiter, ok = opRatelimiterMap[p.Opcode]
-		if ok {
-			limiter.Wait(ctx)
-		}
-	}
-
-	// request rate limit of each data partition for volume
-	partRateLimiterMap, ok := reqVolPartRateLimiterMap[partition.volumeID]
-	if ok {
-		limiter, ok = partRateLimiterMap[partition.partitionID]
-		if ok {
-			limiter.Wait(ctx)
-		}
-	}
-
-	// request rate limit of each data partition for volume & opcode
-	opPartRateLimiterMap, ok := reqVolOpPartRateLimiterMap[partition.volumeID]
-	if ok {
-		partRateLimiterMap, ok = opPartRateLimiterMap[p.Opcode]
-		if ok {
-			limiter, ok = partRateLimiterMap[partition.partitionID]
-			if ok {
-				limiter.Wait(ctx)
-			}
-		}
-	}
-
-	return
-}
-
 func (s *DataNode) responseHeartbeatPb(task *proto.AdminTask) {
 	var err error
 	request := &proto.HeartBeatRequest{}

@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/cbnet/cbrdma"
 	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"strconv"
 
 	"github.com/tiglabs/raft"
 	"github.com/tiglabs/raft/proto"
@@ -28,6 +30,9 @@ type raftServerConfig struct {
 	LogDir      string `json:"logDir"`
 	LogLevel    string `json:"level"`
 	StoreType   int    `json:"storeType"`
+	NumaNode    int    `json:"numaNode"`
+	WorkNum     int    `json:"workNum"`
+	ReplicaType int    `json:"replicaType"`
 }
 
 type peer struct {
@@ -35,7 +40,47 @@ type peer struct {
 	Addr string `json:"addr"`
 }
 
+const (
+	Buffer2 = iota
+	Buffer4
+	Buffer8
+	Buffer16
+	Buffer32
+	Buffer64
+	Buffer128
+	Buffer256
+	Buffer512
+	Buffer1K
+	Buffer2K
+	Buffer4K
+	Buffer8K
+	Buffer16K
+	Buffer32K
+	Buffer64K
+	Buffer128K
+	Buffer256K
+	Buffer512K
+	Buffer1M
+	Buffer2M
+	Buffer4M
+	BufferMAx
+)
+
+var gBuffer [][]byte
+
+func init_global_buffer() {
+	gBuffer = make([][]byte, BufferMAx)
+	for i := Buffer2; i < BufferMAx; i++ {
+		length := 1 << (1 + i)
+		gBuffer[i] = make([]byte, length)
+		for j := 0; j < length; j++ {
+			gBuffer[i][j] = 1
+		}
+	}
+}
+
 func main() {
+	init_global_buffer()
 	flag.Parse()
 	var err error
 	profPort := 9999
@@ -55,7 +100,7 @@ func main() {
 	walDir = rConf.WalDir
 	diskNum = rConf.DiskNum
 	dataType = 1
-	initRaftLog(rConf.LogDir)
+	logHandler := initRaftLog(rConf.LogDir)
 
 	resolver = initNodeManager()
 	peers := make([]proto.Peer, 0)
@@ -64,10 +109,15 @@ func main() {
 		peers = append(peers, peer)
 		resolver.addNodeAddr(p, rConf.ReplicaPort, rConf.HeartPort)
 	}
+	logL, _ := strconv.Atoi(rConf.LogLevel)
+	if _, err = cbrdma.InitNetEnv(rConf.WorkNum, logL, rConf.NumaNode, rConf.Addr, logHandler); err != nil {
+		logHandler.Error("init rdma env failed:%s", err.Error())
+		return
+	}
 
 	output(fmt.Sprintf("loglevel[%v], storageType[%v], walDir[%v], diskNum[%v], dataType[%v]", logLevel, storageType, walDir, diskNum, dataType))
 	raftConfig := &raft.RaftConfig{Peers: peers, Leader: 0, Term: 0, Mode: raft.DefaultMode}
-	server := createRaftServer(rConf.ID, true, false, rConf.GroupNum, raftConfig)
+	server := createRaftServer(rConf.ID, true, false, rConf.GroupNum, raftConfig, raft.SocketType(rConf.ReplicaType))
 	server.conf = rConf
 	server.startHttpService(rConf.Addr, rConf.Listen)
 }

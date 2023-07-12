@@ -85,7 +85,6 @@ const (
 	OpGetPersistedAppliedId          uint8 = 0x1a
 	OpGetAllWatermarksV3             uint8 = 0x1b
 	OpFingerprint                    uint8 = 0x1c
-	OpEcTinyDelInfoRead                    = OpReadTinyDeleteRecord
 	OpLockOrUnlockExtent             uint8 = 0x1d
 	OpGetRdmaInfo                    uint8 = 0x1e
 

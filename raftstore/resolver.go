@@ -33,13 +33,13 @@ var (
 type nodeAddress struct {
 	Heartbeat string
 	Replicate string
+	ReplicateRDMA string
 }
 
 // NodeManager defines the necessary methods for node address management.
 type NodeManager interface {
 	// add node address with specified port.
 	AddNodeWithPort(nodeID uint64, addr string, heartbeat int, replicate int)
-
 	// delete node address information
 	DeleteNode(nodeID uint64)
 }
@@ -74,6 +74,8 @@ func (r *nodeResolver) NodeAddress(nodeID uint64, stype raft.SocketType) (addr s
 		addr = address.Heartbeat
 	case raft.Replicate:
 		addr = address.Replicate
+	case raft.ReplicateRDMA:
+		addr = address.ReplicateRDMA
 	default:
 		err = ErrUnknownSocketType
 	}
@@ -82,21 +84,29 @@ func (r *nodeResolver) NodeAddress(nodeID uint64, stype raft.SocketType) (addr s
 
 // AddNode adds node address information.
 func (r *nodeResolver) AddNode(nodeID uint64, addr string) {
-	r.AddNodeWithPort(nodeID, addr, 0, 0)
+	r.AddNodeWithAllPorts(nodeID, addr, 0, 0, 0)
 }
 
 // AddNodeWithPort adds node address with specified port.
 func (r *nodeResolver) AddNodeWithPort(nodeID uint64, addr string, heartbeat int, replicate int) {
+	r.AddNodeWithAllPorts(nodeID, addr, heartbeat, replicate, 0)
+}
+
+func (r *nodeResolver) AddNodeWithAllPorts(nodeID uint64, addr string, heartbeat, replicate, replicateRDMA int) {
 	if heartbeat == 0 {
 		heartbeat = DefaultHeartbeatPort
 	}
 	if replicate == 0 {
 		replicate = DefaultReplicaPort
 	}
+	if replicateRDMA == 0 {
+		replicateRDMA = DefaultRDMAPortOffset + replicate
+	}
 	if len(strings.TrimSpace(addr)) != 0 {
 		r.nodeMap.Store(nodeID, &nodeAddress{
 			Heartbeat: fmt.Sprintf("%s:%d", addr, heartbeat),
 			Replicate: fmt.Sprintf("%s:%d", addr, replicate),
+			ReplicateRDMA: fmt.Sprintf("%s:%d", addr, replicateRDMA),
 		})
 	}
 }
