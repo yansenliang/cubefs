@@ -10,7 +10,7 @@ VendorPath=${RootPath}/vendor
 DependsPath=${RootPath}/depends
 use_clang=$(echo ${CC} | grep "clang" | grep -v "grep")
 cgo_ldflags="-L${BuildDependsLibPath} -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -lstdc++"
-if [ "${use_clang}" != "" ]; then 
+if [ "${use_clang}" != "" ]; then
     cgo_ldflags="-L${BuildDependsLibPath} -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -lc++"
 fi
 cgo_cflags="-I${BuildDependsIncludePath}"
@@ -303,10 +303,16 @@ build_blobstore_cli() {
     CGO_ENABLED=1 go build ${MODFLAGS} -gcflags=all=-trimpath=${SrcPath} -asmflags=all=-trimpath=${SrcPath} -ldflags="${LDFlags}" -o ${BuildBinPath}/blobstore/blobstore-cli ${SrcPath}/blobstore/cli/cli
 }
 
+build_blobstore_dialtest() {
+    CGO_ENABLED=0 go build ${MODFLAGS} -gcflags=all=-trimpath=${SrcPath} -asmflags=all=-trimpath=${SrcPath} -ldflags="${LDFlags}" -o ${BuildBinPath}/blobstore/blobstore-dialtest ${SrcPath}/blobstore/testing/dial/main
+}
+
 build_blobstore() {
     pushd $SrcPath >/dev/null
     echo -n "build blobstore    "
-    build_clustermgr && build_blobnode && build_access && build_scheduler && build_proxy && build_blobstore_cli && echo "success" || echo "failed"
+    build_clustermgr && build_blobnode && build_access && build_scheduler && build_proxy \
+        && build_blobstore_cli && build_blobstore_dialtest \
+        && echo "success" || echo "failed"
     popd >/dev/null
 }
 
