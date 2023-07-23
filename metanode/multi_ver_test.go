@@ -888,6 +888,7 @@ func TestTruncateAndDel(t *testing.T) {
 		Size:       500,
 		ModifyTime: time.Now().Unix(),
 	}
+	ino.setVolVer(mp.verSeq) // fsm operation should set verSeq because there's no handle process to set ino's seq
 	mp.fsmExtentsTruncate(ino)
 	log.LogDebugf("TestTruncate start")
 	t.Logf("TestTruncate. create new snapshot seq %v,%v,file verlist size %v [%v]", seq1, seq2, len(fileIno.multiSnap.multiVersions), fileIno.multiSnap.multiVersions)
@@ -909,6 +910,7 @@ func TestTruncateAndDel(t *testing.T) {
 	log.LogDebugf("TestTruncate start")
 	testCreateVer() // seq2 IS commited, seq3 not
 	log.LogDebugf("TestTruncate start")
+	ino.setVolVer(0)  // unlink top layer
 	mp.fsmUnlinkInode(ino)
 	log.LogDebugf("TestTruncate start")
 	assert.True(t, 3 == len(fileIno.multiSnap.multiVersions))

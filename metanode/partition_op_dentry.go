@@ -129,11 +129,17 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 		FileId:   req.FileId,
 	}
 
+	if p.IsDirSnapshotOperate() {
+		dentry.setVerSeq(req.VerSeq)
+	} else {
+		dentry.setVerSeq(mp.GetVerSeq())
+	}
+
+	// TODO createDentryEx support snap and tx
 	if req.OldIno != 0 {
 		return mp.createDentryEx(dentry, req.OldIno, p)
 	}
 
-	dentry.setVerSeq(mp.verSeq)
 	log.LogDebugf("action[CreateDentry] mp[%v] with seq %v,dentry [%v]", mp.config.PartitionId, mp.verSeq, dentry)
 	val, err := dentry.Marshal()
 	if err != nil {
@@ -285,11 +291,7 @@ func (mp *metaPartition) DeleteDentry(req *DeleteDentryReq, p *Packet) (err erro
 		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
 		return
 	}
-	if mp.verSeq == 0 && dentry.getSeqFiled() > 0 {
-		err = fmt.Errorf("snapshot not enabled")
-		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
-		return
-	}
+
 	log.LogDebugf("action[DeleteDentry] submit!")
 	r, err := mp.submit(opFSMDeleteDentry, val)
 	if err != nil {
@@ -448,7 +450,12 @@ func (mp *metaPartition) UpdateDentry(req *UpdateDentryReq, p *Packet) (err erro
 		Name:     req.Name,
 		Inode:    req.Inode,
 	}
-	dentry.setVerSeq(mp.verSeq)
+	if p.IsDirSnapshotOperate() {
+		dentry.setVerSeq(p.VerSeq)
+	} else {
+		dentry.setVerSeq(mp.GetVerSeq())
+	}
+
 	val, err := dentry.Marshal()
 	if err != nil {
 		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
@@ -513,7 +520,7 @@ func (mp *metaPartition) Lookup(req *LookupReq, p *Packet) (err error) {
 		ParentId: req.ParentID,
 		Name:     req.Name,
 	}
-	dentry.setVerSeq(mp.verSeq)
+	dentry.setVerSeq(req.VerSeq)
 	var denList []proto.DetryInfo
 	if req.VerAll {
 		denList = mp.getDentryList(dentry)

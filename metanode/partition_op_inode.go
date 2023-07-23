@@ -141,7 +141,7 @@ func (mp *metaPartition) CreateInode(req *CreateInoReq, p *Packet) (err error) {
 	ino.Uid = req.Uid
 	ino.Gid = req.Gid
 
-	verSeq := mp.verSeq
+	verSeq := mp.GetVerSeq()
 	if p.IsDirSnapshotOperate() {
 		verSeq = p.VerSeq
 	}
@@ -297,15 +297,10 @@ func (mp *metaPartition) UnlinkInode(req *UnlinkInoReq, p *Packet) (err error) {
 		ino.Flag |= InodeDelTop
 	}
 
-	val, err := ino.Marshal()
-	if err != nil {
-		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
-		return
-	}
+
 	log.LogDebugf("action[UnlinkInode] ino %v submit", ino)
-	r, err := mp.submit(opFSMUnlinkInode, val)
+	r, err := mp.buildAndSubmitInoPacket(ino, opFSMUnlinkByDirVer, opFSMUnlinkInode, p)
 	if err != nil {
-		p.PacketErrorWithBody(proto.OpAgain, []byte(err.Error()))
 		return
 	}
 
@@ -659,8 +654,12 @@ func (mp *metaPartition) EvictInodeBatch(req *BatchEvictInodeReq, p *Packet) (er
 
 // SetAttr set the inode attributes.
 func (mp *metaPartition) SetAttr(req *SetattrRequest, reqData []byte, p *Packet) (err error) {
-	if mp.verSeq != 0 {
-		req.VerSeq = mp.verSeq
+	verSeq := mp.GetVerSeq()
+	if p.IsDirSnapshotOperate() {
+		verSeq = p.VerSeq
+	}
+	if verSeq != 0 {
+		req.VerSeq = verSeq
 		reqData, err = json.Marshal(req)
 		if err != nil {
 			log.LogErrorf("setattr: marshal err(%v)", err)

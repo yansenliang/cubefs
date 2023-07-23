@@ -552,7 +552,7 @@ func (m *metadataManager) opDeleteDentry(conn net.Conn, p *Packet,
 	return
 }
 
-// Handle Op batch Delete Dentry
+// obsolete:Handle Op batch Delete Dentry
 func (m *metadataManager) opBatchDeleteDentry(conn net.Conn, p *Packet,
 	remoteAddr string) (err error) {
 	req := &BatchDeleteDentryReq{}
@@ -641,6 +641,8 @@ func (m *metadataManager) opUpdateDentry(conn net.Conn, p *Packet,
 		err = errors.NewErrorf("[%v],req[%v],err[%v]", p.GetOpMsgWithReqAndResult(), req, string(p.Data))
 		return
 	}
+
+	err = mp.UpdateDentry(req, p)
 
 	m.respondToClientWithVer(conn, p)
 	log.LogDebugf("%s [opUpdateDentry] req: %d - %v; resp: %v, body: %s",

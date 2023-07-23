@@ -160,17 +160,17 @@ const (
 	//quota
 	opFSMCreateInodeQuota
 
-	opFSMSentToChanV1
 	opFSMVersionOp
 	opFSMExtentSplit
-	opFSMDelVer
-	opFSMStoreTickV1
 
 	// dir snapshot
+	opFSMExtentsAddWithCheckByDirVer
+	opFSMExtentSplitByDir
 	opFSMDDentryByDirVer
 	opFSMUnlinkByDirVer
 	opFSMDDentryBatchByDirVer
 	opFSMUnlinkBatchByDirVer
+	opFSMExtentTruncateByDirVer
 )
 
 const (

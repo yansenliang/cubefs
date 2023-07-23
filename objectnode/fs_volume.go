@@ -1913,7 +1913,7 @@ func (v *Volume) recursiveMakeDirectory(path string) (ino uint64, err error) {
 	return
 }
 
-// Deprecated
+
 func (v *Volume) lookupDirectories(dirs []string, autoCreate bool) (inode uint64, err error) {
 	var parentId = rootIno
 	// check and create dirs
