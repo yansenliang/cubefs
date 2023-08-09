@@ -290,7 +290,7 @@ func (c *Cluster) scheduleTask() {
 	c.scheduleToCheckDecommissionDisk()
 	c.scheduleToCheckDataReplicas()
 	c.scheduleToLcScan()
-	c.scheduleToSnapshotScanDelVer()
+	c.scheduleToSnapshotDelVerScan()
 }
 
 func (c *Cluster) masterAddr() (addr string) {
@@ -3819,6 +3819,7 @@ func (c *Cluster) getAllLcNodeInfo() (rsp *LcNodeInfoResponse, err error) {
 	})
 	rsp.LcConfigurations = c.lcMgr.lcConfigurations
 	rsp.LcRuleTaskStatus = c.lcMgr.lcRuleTaskStatus
+	rsp.SnapshotInfos = c.snapshotMgr.volVerInfos
 	return
 }
 
@@ -3880,8 +3881,8 @@ func (c *Cluster) startLcScan() {
 	c.lcMgr.startLcScan()
 }
 
-func (c *Cluster) scheduleToSnapshotScanDelVer() {
-	c.snapshotMgr.Start()
+func (c *Cluster) scheduleToSnapshotDelVerScan() {
+	go c.snapshotMgr.process()
 	//make sure resume all the processing ver deleting tasks before checking
 	waitTime := time.Second * defaultIntervalToCheck
 	waited := false
@@ -3894,35 +3895,37 @@ func (c *Cluster) scheduleToSnapshotScanDelVer() {
 					time.Sleep(waitTime)
 					waited = true
 				}
-				c.getDeletingSnapshotVer()
+				c.getSnapshotDelVer()
 				c.checkSnapshotStrategy()
 			}
-			time.Sleep(time.Second * defaultIntervalToCheck)
+			time.Sleep(waitTime)
 		}
 	}()
 }
 
-func (c *Cluster) getDeletingSnapshotVer() {
-	if c.partition != nil && c.partition.IsRaftLeader() {
-		vols := c.allVols()
-		for volName, vol := range vols {
-			volVerInfoList := vol.VersionMgr.getVersionList()
-			for _, volVerInfo := range volVerInfoList.VerList {
-				if volVerInfo.Status == proto.VersionDeleting {
-					verInfo := &LcVerInfo{
-						VerInfo: proto.VerInfo{
-							VolName: volName,
-							VerSeq:  volVerInfo.Ver,
-						},
-						dTime: time.Unix(volVerInfo.DelTime,0),
-					}
-					c.snapshotMgr.volVerInfos.AddVerInfo(verInfo)
+func (c *Cluster) getSnapshotDelVer() {
+	if c.partition == nil || !c.partition.IsRaftLeader() {
+		log.LogWarn("getDeletingSnapshotVer: master is not leader")
+		return
+	}
+
+	vols := c.allVols()
+	for volName, vol := range vols {
+		volVerInfoList := vol.VersionMgr.getVersionList()
+		for _, volVerInfo := range volVerInfoList.VerList {
+			if volVerInfo.Status == proto.VersionDeleting {
+				verInfo := &LcVerInfo{
+					VerInfo: proto.VerInfo{
+						VolName: volName,
+						VerSeq:  volVerInfo.Ver,
+					},
+					dTime: time.UnixMicro(volVerInfo.DelTime),
 				}
+				c.snapshotMgr.volVerInfos.AddVerInfo(verInfo)
 			}
 		}
-	} else {
-		log.LogWarnf("getDeletingSnapshotVer: master is not leader")
 	}
+	log.LogDebug("getDeletingSnapshotVer finish")
 }
 
 func (c *Cluster) checkSnapshotStrategy() {
