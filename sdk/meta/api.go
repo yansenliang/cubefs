@@ -95,7 +95,6 @@ func (mw *MetaWrapper) Statfs() (total, used, inodeCount uint64) {
 }
 
 func (mw *MetaWrapper) Create_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte) (*proto.InodeInfo, error) {
-	//if mw.EnableTransaction {
 	txMask := proto.TxOpMaskOff
 	if proto.IsRegular(mode) {
 		txMask = proto.TxOpMaskCreate
@@ -256,7 +255,7 @@ func (mw *MetaWrapper) create_ll(parentID uint64, name string, mode, uid, gid ui
 	return nil, syscall.ENOMEM
 
 create_dentry:
-	status, err = mw.dcreate(parentMP, parentID, name, info.Inode, mode, quotaIds)
+	status, err = mw.dcreate(mp, parentID, name, info.Inode, mode, quotaIds)
 	if err != nil {
 		if status == statusOpDirQuota {
 			mw.iunlink(mp, info.Inode, mw.Client.GetLatestVer(), 0)
@@ -294,6 +293,21 @@ func (mw *MetaWrapper) Lookup_ll(parentID uint64, name string) (inode uint64, mo
 		return 0, 0, statusToErrno(status)
 	}
 	return inode, mode, nil
+}
+
+func (mw *MetaWrapper) LookupEx_ll(parentId uint64, name string) (den *proto.Dentry, err error) {
+	parentMP := mw.getPartitionByInode(parentId)
+	if parentMP == nil {
+		log.LogErrorf("LookUpEx_ll: No parent partition, parentID(%v) name(%v)", parentId, name)
+		return nil, syscall.ENOENT
+	}
+
+	status, err, den := mw.lookupEx(parentMP, parentId, name, mw.VerReadSeq)
+	if err != nil || status != statusOK {
+		return nil, statusToErrno(status)
+	}
+
+	return den, nil
 }
 
 func (mw *MetaWrapper) BatchGetExpiredMultipart(prefix string, days int) (expiredIds []*proto.ExpiredMultipartInfo, err error) {
@@ -481,7 +495,7 @@ func (mw *MetaWrapper) BatchInodeGetWith(inodes []uint64) (batchInfos []*proto.I
 				wg.Done()
 				<-limit
 			}()
-			subInfos, err1 := mw.batchIgetWithErr(mp, nodes)
+			subInfos, err1 := mw.batchIgetEx(mp, nodes)
 			if err1 != nil {
 				err = fmt.Errorf("invoke batchIgetWithErr failed, err %s", err1.Error())
 				return
@@ -1040,10 +1054,13 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 	}
 
 	// look up for the src ino
-	status, inode, mode, err := mw.lookup(srcParentMP, srcParentID, srcName, 0)
+	//status, inode, mode, err := mw.lookup(srcParentMP, srcParentID, srcName, 0)
+	status, err, den := mw.lookupEx(srcParentMP, srcParentID, srcName, 0)
 	if err != nil || status != statusOK {
 		return statusToErrno(status)
 	}
+	inode := den.Inode
+	mode := den.Type
 
 	quotaInfos, err := mw.GetInodeQuota_ll(inode)
 	if err != nil {
@@ -1077,7 +1094,15 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 		quotaIds = append(quotaIds, quotaId)
 	}
 	// create dentry in dst parent
-	status, err = mw.dcreate(dstParentMP, dstParentID, dstName, inode, mode, quotaIds)
+	createReq := &proto.CreateDentryRequest{
+		ParentID: dstParentID,
+		Name:     dstName,
+		Inode:    inode,
+		Mode:     mode,
+		QuotaIds: quotaIds,
+		FileId:   den.FileId,
+	}
+	status, err = mw.dcreateEx(dstParentMP, createReq)
 	if err != nil {
 		if status == statusOpDirQuota {
 			return statusToErrno(status)
@@ -1255,14 +1280,13 @@ func (mw *MetaWrapper) DentryCreate_ll(parentID uint64, name string, inode uint6
 	return nil
 }
 
-func (mw *MetaWrapper) DentryCreateEx_ll(parentID uint64, name string, inode, oldIno uint64, mode uint32) error {
-	parentMP := mw.getPartitionByInode(parentID)
+func (mw *MetaWrapper) DentryCreateEx_ll(req *proto.CreateDentryRequest) error {
+	parentMP := mw.getPartitionByInode(req.ParentID)
 	if parentMP == nil {
 		return syscall.ENOENT
 	}
-	var err error
-	var status int
-	if status, err = mw.dcreateEx(parentMP, parentID, name, inode, oldIno, mode, nil); err != nil || status != statusOK {
+
+	if status, err := mw.dcreateEx(parentMP, req); err != nil || status != statusOK {
 		return statusToErrno(status)
 	}
 	return nil

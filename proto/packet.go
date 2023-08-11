@@ -87,7 +87,7 @@ const (
 	OpMetaLinkInode     uint8 = 0x2E
 	OpMetaEvictInode    uint8 = 0x2F
 	OpMetaSetattr       uint8 = 0x30
-	OpMetaReleaseOpen   uint8 = 0x31
+	OpMetaCreateInodeEx uint8 = 0x31
 
 	//Operations: MetaNode Leader -> MetaNode Follower
 	OpMetaFreeInodesOnRaftFollower uint8 = 0x32
@@ -218,7 +218,7 @@ const (
 	OpMetaBatchSetXAttr uint8 = 0xD2
 	OpMetaGetAllXAttr   uint8 = 0xD3
 
-	OpMetaSetInodeLock       uint8 = 0xD4
+	OpMetaSetInodeLock uint8 = 0xD4
 	//transaction error
 	OpTxInodeInfoNotExistErr  uint8 = 0xE0
 	OpTxConflictErr           uint8 = 0xE1
@@ -404,8 +404,8 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpMetaDeleteDentry"
 	case OpMetaOpen:
 		m = "OpMetaOpen"
-	case OpMetaReleaseOpen:
-		m = "OpMetaReleaseOpen"
+	//case OpMetaCreateInodeEx:
+	//	m = "OpMetaCreateInodeEx"
 	case OpMetaLookup:
 		m = "OpMetaLookup"
 	case OpMetaReadDir:

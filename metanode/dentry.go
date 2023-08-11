@@ -54,6 +54,7 @@ type Dentry struct {
 	Name     string // Name of the current dentry.
 	Inode    uint64 // FileID value of the current inode.
 	Type     uint32
+	FileId   uint64
 	//snapshot
 	multiSnap *DentryMultiSnap
 }
@@ -685,6 +686,11 @@ func (d *Dentry) MarshalValue() (k []byte) {
 		panic(err)
 	}
 
+	size := uint32(d.getSnapListLen())
+	if err := binary.Write(buff, binary.BigEndian, &size); err != nil {
+		panic(err)
+	}
+
 	if d.getSnapListLen() > 0 {
 		for _, dd := range d.multiSnap.dentryList {
 			if err := binary.Write(buff, binary.BigEndian, &dd.Inode); err != nil {
@@ -700,8 +706,13 @@ func (d *Dentry) MarshalValue() (k []byte) {
 		}
 	}
 
+	if err := binary.Write(buff, binary.BigEndian, &d.FileId); err != nil {
+		panic(err)
+	}
+
 	k = buff.Bytes()
-	log.LogDebugf("action[MarshalValue] dentry name %v, inode %v, parent inode %v, val len %v", d.Name, d.Inode, d.ParentId, len(k))
+	log.LogDebugf("action[MarshalValue] dentry name %v, inode %v, parent inode %v, val len %v, fileId %d",
+		d.Name, d.Inode, d.ParentId, d.FileId, len(k))
 	return
 }
 
@@ -717,13 +728,18 @@ func (d *Dentry) UnmarshalValue(val []byte) (err error) {
 		if err = binary.Read(buff, binary.BigEndian, &seq); err != nil {
 			return
 		}
+
+		size := uint32(0)
+		if err = binary.Read(buff, binary.BigEndian, &size); err != nil {
+			return
+		}
+
 		if seq > 0 {
 			d.multiSnap = NewDentrySnap(seq)
 		}
-		if (len(val)-20)%20 != 0 {
-			return fmt.Errorf("action[UnmarshalSnapshotValue] left len %v after divide by dentry len", len(val)-20)
-		}
-		for i := 0; i < (len(val)-20)/20; i++ {
+
+		//TODO tmp close snapshot marshal
+		for i := 0; i < int(size); i++ {
 			//todo(leonchang) name and parentid should be removed to reduce space
 			den := &Dentry{
 				Name:     d.Name,
@@ -745,5 +761,12 @@ func (d *Dentry) UnmarshalValue(val []byte) (err error) {
 			log.LogDebugf("action[UnmarshalValue] dentry name %v, inode %v, parent inode %v, val len %v", den.Name, den.Inode, den.ParentId, len(val))
 		}
 	}
+
+	if buff.Len() != 0 {
+		if err = binary.Read(buff, binary.BigEndian, &d.FileId); err != nil {
+			return
+		}
+	}
+
 	return
 }

@@ -88,6 +88,11 @@ type InodeInfo struct {
 	expiration int64
 }
 
+//type InodeInfoEx struct {
+//	*InodeInfo
+//	Extend map[string]string `json:"extend"`
+//}
+
 type SimpleExtInfo struct {
 	ID          uint64
 	PartitionID uint32
@@ -165,14 +170,15 @@ func (info XAttrInfo) String() string {
 
 // Dentry defines the dentry struct.
 type Dentry struct {
-	Name  string `json:"name"`
-	Inode uint64 `json:"ino"`
-	Type  uint32 `json:"type"`
+	Name   string `json:"name"`
+	Inode  uint64 `json:"ino"`
+	Type   uint32 `json:"type"`
+	FileId uint64 `json:"fileId"`
 }
 
 // String returns the string format of the dentry.
 func (d Dentry) String() string {
-	return fmt.Sprintf("Dentry{Name(%v),Inode(%v),Type(%v)}", d.Name, d.Inode, d.Type)
+	return fmt.Sprintf("Dentry{Name(%v),Inode(%v),Type(%v),FileId(%d)}", d.Name, d.Inode, d.Type, d.FileId)
 }
 
 func (d *Dentry) IsDir() bool {
@@ -194,6 +200,20 @@ type CreateInodeRequest struct {
 type CreateInodeResponse struct {
 	Info *InodeInfo `json:"info"`
 }
+
+//type CreateInodeExt struct {
+//	VolName     string            `json:"vol"`
+//	PartitionID uint64            `json:"pid"`
+//	Mode        uint32            `json:"mode"`
+//	Uid         uint32            `json:"uid"`
+//	Gid         uint32            `json:"gid"`
+//	Target      []byte            `json:"tgt"`
+//	Extend      map[string]string `json:"extend"`
+//}
+//
+//type CreateInoExResp struct {
+//	Info *InodeInfoEx `json:"info"`
+//}
 
 // TxCreateInodeRequest defines the request to create an inode with transaction info.
 type TxCreateInodeRequest struct {
@@ -348,6 +368,7 @@ type CreateDentryRequest struct {
 	QuotaIds    []uint32 `json:"qids"`
 	VerSeq      uint64   `json:"seq"`
 	OldIno      uint64   `json:"old_ino"`
+	FileId      uint64   `json:"file_id"`
 }
 
 // TxCreateDentryRequest defines the request to create a dentry.
@@ -457,6 +478,7 @@ type LookupResponse struct {
 	Inode  uint64      `json:"ino"`
 	Mode   uint32      `json:"mode"`
 	VerSeq uint64      `json:"seq"`
+	FileId uint64      `json:"fileId"`
 	LayAll []DetryInfo `json:"layerInfo"`
 }
 

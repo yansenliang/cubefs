@@ -126,9 +126,9 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 		Name:     req.Name,
 		Inode:    req.Inode,
 		Type:     req.Mode,
+		FileId:   req.FileId,
 	}
 
-	// TODO createDentryEx support snap and tx
 	if req.OldIno != 0 {
 		return mp.createDentryEx(dentry, req.OldIno, p)
 	}
@@ -492,6 +492,7 @@ func (mp *metaPartition) Lookup(req *LookupReq, p *Packet) (err error) {
 				Mode:   dentry.Type,
 				VerSeq: dentry.getSeqFiled(),
 				LayAll: denList,
+				FileId: dentry.FileId,
 			}
 		} else {
 			resp = &LookupResp{
@@ -499,6 +500,7 @@ func (mp *metaPartition) Lookup(req *LookupReq, p *Packet) (err error) {
 				Mode:   0,
 				VerSeq: 0,
 				LayAll: denList,
+				FileId: dentry.FileId,
 			}
 		}
 		reply, err = json.Marshal(resp)

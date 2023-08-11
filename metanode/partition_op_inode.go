@@ -49,6 +49,18 @@ func replyInfoNoCheck(info *proto.InodeInfo, ino *Inode, quotaIds []uint32) bool
 	return true
 }
 
+//func replyInfoEx(info *proto.InodeInfoEx, ino *Inode, extend *Extend) {
+//	info.InodeInfo = &proto.InodeInfo{}
+//	replyInfo(info.InodeInfo, ino, []uint32{})
+//	info.Extend = map[string]string{}
+//	if extend != nil {
+//		extend.Range(func(key, value []byte) bool {
+//			info.Extend[string(key)] = string(value)
+//			return true
+//		})
+//	}
+//}
+
 func replyInfo(info *proto.InodeInfo, ino *Inode, quotaIds []uint32) bool {
 	ino.RLock()
 	defer ino.RUnlock()
@@ -194,6 +206,65 @@ func (mp *metaPartition) CreateInode(req *CreateInoReq, p *Packet) (err error) {
 	log.LogInfof("CreateInode req [%v] qinode [%v] success.", req, qinode)
 	return
 }
+
+//func (mp *metaPartition) CreateInodeEx(req *proto.CreateInodeExt, p *Packet) (err error) {
+//	var (
+//		status = proto.OpNotExistErr
+//		reply  []byte
+//		resp   interface{}
+//	)
+//
+//	inoID, err := mp.nextInodeID()
+//	if err != nil {
+//		p.PacketErrorWithBody(proto.OpInodeFullErr, []byte(err.Error()))
+//		return
+//	}
+//
+//	ino := NewInode(inoID, req.Mode)
+//	ino.Uid = req.Uid
+//	ino.Gid = req.Gid
+//	ino.setVer(mp.verSeq)
+//	ino.LinkTarget = req.Target
+//
+//	ext := NewExtend(inoID)
+//	for k, v := range req.Extend {
+//		ext.Put([]byte(k), []byte(v), 0)
+//	}
+//
+//	inoEx := &InodeEx{
+//		Inode:  ino,
+//		Extend: ext,
+//	}
+//
+//	log.LogDebugf("action[CreateInodeEx] mp[%v] %v with seq %v", mp.config.PartitionId, inoID, mp.verSeq)
+//	val, err := inoEx.Marshal()
+//	if err != nil {
+//		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
+//		return err
+//	}
+//
+//	resp, err = mp.submit(opFsmCreateInodeEx, val)
+//	if err != nil {
+//		log.LogWarnf("CreateInodeEx: create inodeEx failed, val %s, err %s", string(val), err.Error())
+//		p.PacketErrorWithBody(proto.OpAgain, []byte(err.Error()))
+//		return err
+//	}
+//
+//	if resp.(uint8) == proto.OpOk {
+//		resp := &proto.CreateInoExResp{
+//			Info: &proto.InodeInfoEx{},
+//		}
+//		replyInfoEx(resp.Info, ino, inoEx.Extend)
+//		status = proto.OpOk
+//		reply, err = json.Marshal(resp)
+//		if err != nil {
+//			status = proto.OpErr
+//			reply = []byte(err.Error())
+//		}
+//	}
+//	p.PacketErrorWithBody(status, reply)
+//	return
+//}
 
 func (mp *metaPartition) TxUnlinkInode(req *proto.TxUnlinkInodeRequest, p *Packet) (err error) {
 
