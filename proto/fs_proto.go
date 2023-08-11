@@ -88,11 +88,6 @@ type InodeInfo struct {
 	expiration int64
 }
 
-//type InodeInfoEx struct {
-//	*InodeInfo
-//	Extend map[string]string `json:"extend"`
-//}
-
 type SimpleExtInfo struct {
 	ID          uint64
 	PartitionID uint32
@@ -200,20 +195,6 @@ type CreateInodeRequest struct {
 type CreateInodeResponse struct {
 	Info *InodeInfo `json:"info"`
 }
-
-//type CreateInodeExt struct {
-//	VolName     string            `json:"vol"`
-//	PartitionID uint64            `json:"pid"`
-//	Mode        uint32            `json:"mode"`
-//	Uid         uint32            `json:"uid"`
-//	Gid         uint32            `json:"gid"`
-//	Target      []byte            `json:"tgt"`
-//	Extend      map[string]string `json:"extend"`
-//}
-//
-//type CreateInoExResp struct {
-//	Info *InodeInfoEx `json:"info"`
-//}
 
 // TxCreateInodeRequest defines the request to create an inode with transaction info.
 type TxCreateInodeRequest struct {
