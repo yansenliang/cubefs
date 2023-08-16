@@ -99,6 +99,8 @@ const (
 	OpMetaListXAttr          uint8 = 0x38
 	OpMetaBatchGetXAttr      uint8 = 0x39
 	OpMetaExtentAddWithCheck uint8 = 0x3A // Append extent key with discard extents check
+	OpMetaUpdateXAttr        uint8 = 0x3B
+	OpMetaReadDirOnly        uint8 = 0x3C
 	OpMetaReadDirLimit       uint8 = 0x3D
 
 	// Operations: Master -> MetaNode
@@ -111,6 +113,7 @@ const (
 	OpAddMetaPartitionRaftMember    uint8 = 0x46
 	OpRemoveMetaPartitionRaftMember uint8 = 0x47
 	OpMetaPartitionTryToLeader      uint8 = 0x48
+	OpMetaDelDirVer                 uint8 = 0x49
 
 	// Quota
 	OpMasterSetInodeQuota       uint8 = 0x50
@@ -199,9 +202,8 @@ const (
 	OpOk                 uint8 = 0xF0
 	OpTryOtherExtent     uint8 = 0xE0
 
-	OpPing                  uint8 = 0xFF
-	OpMetaUpdateXAttr       uint8 = 0x3B
-	OpMetaReadDirOnly       uint8 = 0x3C
+	OpPing uint8 = 0xFF
+
 	OpUploadPartConflictErr uint8 = 0x3D
 
 	// ebs obj meta
@@ -497,6 +499,8 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpRemoveMetaPartitionRaftMember"
 	case OpMetaPartitionTryToLeader:
 		m = "OpMetaPartitionTryToLeader"
+	case OpMetaDelDirVer:
+		m = "OpMetaDelDirVer"
 	case OpDataPartitionTryToLeader:
 		m = "OpDataPartitionTryToLeader"
 	case OpMetaDeleteInode:
