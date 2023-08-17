@@ -97,6 +97,7 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 		p.PacketErrorWithBody(proto.OpExistErr, []byte(err.Error()))
 		return
 	}
+
 	for _, quotaId := range req.QuotaIds {
 		status := mp.mqMgr.IsOverQuota(false, true, quotaId)
 		if status != 0 {
@@ -127,6 +128,7 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 		Inode:    req.Inode,
 		Type:     req.Mode,
 		FileId:   req.FileId,
+		multiSnap: NewDentrySnap(mp.GetVerSeq()),
 	}
 
 	if p.IsDirSnapshotOperate() {

@@ -606,9 +606,6 @@ func (d *Dentry) Marshal() (result []byte, err error) {
 	buff := bytes.NewBuffer(make([]byte, 0))
 	buff.Grow(int(keyLen + valLen + 8))
 
-	//log.LogInfof("action[dentry.Marshal] dentry name %v inode %v parent %v seq %v keyLen  %v valLen %v total len %v",
-	//	d.Name, d.Inode, d.ParentId, d.VerSeq, keyLen, valLen, int(keyLen+valLen+8))
-
 	if err = binary.Write(buff, binary.BigEndian, keyLen); err != nil {
 		return
 	}
@@ -766,8 +763,8 @@ func (d *Dentry) MarshalValue() (k []byte) {
 		panic(err)
 	}
 
-	size := uint32(d.getSnapListLen())
-	if err := binary.Write(buff, binary.BigEndian, &size); err != nil {
+	verCnt := uint32(d.getSnapListLen())
+	if err := binary.Write(buff, binary.BigEndian, &verCnt); err != nil {
 		panic(err)
 	}
 
@@ -791,8 +788,6 @@ func (d *Dentry) MarshalValue() (k []byte) {
 	}
 
 	k = buff.Bytes()
-	log.LogDebugf("action[MarshalValue] dentry name %v, inode %v, parent inode %v, val len %v, fileId %d",
-		d.Name, d.Inode, d.ParentId, d.FileId, len(k))
 	return
 }
 
@@ -802,7 +797,7 @@ func (d *Dentry) UnmarshalValue(val []byte) (err error) {
 		return
 	}
 	err = binary.Read(buff, binary.BigEndian, &d.Type)
-	log.LogDebugf("action[UnmarshalValue] dentry name %v, inode %v, parent inode %v, val len %v", d.Name, d.Inode, d.ParentId, len(val))
+
 	if len(val) >= 28 {
 		var seq uint64
 		if err = binary.Read(buff, binary.BigEndian, &seq); err != nil {
@@ -838,7 +833,6 @@ func (d *Dentry) UnmarshalValue(val []byte) (err error) {
 				den.multiSnap = NewDentrySnap(seq)
 			}
 			d.multiSnap.dentryList = append(d.multiSnap.dentryList, den)
-			log.LogDebugf("action[UnmarshalValue] dentry name %v, inode %v, parent inode %v, val len %v", den.Name, den.Inode, den.ParentId, len(val))
 		}
 	}
 
