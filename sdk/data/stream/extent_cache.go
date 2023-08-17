@@ -17,7 +17,6 @@ package stream
 import (
 	"fmt"
 	"github.com/cubefs/cubefs/util"
-	"runtime/debug"
 	"sync"
 
 	"github.com/cubefs/cubefs/proto"
@@ -283,7 +282,7 @@ func (cache *ExtentCache) Append(ek *proto.ExtentKey, sync bool) (discardExtents
 		cache.inode, sync, ek, discard, discardExtents, ek.GetSeq())
 	//	log.LogDebugf("ExtentCache Append stack[%v]", string(debug.Stack()))
 
-	log.LogDebugf("stack:%v", string(debug.Stack()))
+	//log.LogDebugf("stack:%v", string(debug.Stack()))
 	cache.root.Descend(func(i btree.Item) bool {
 		ek := i.(*proto.ExtentKey)
 		// skip if the start offset matches with the given offset
