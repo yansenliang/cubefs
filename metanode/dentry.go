@@ -754,7 +754,7 @@ func (d *Dentry) UnmarshalKey(k []byte) (err error) {
 func (d *Dentry) MarshalValue() (k []byte) {
 
 	buff := bytes.NewBuffer(make([]byte, 0))
-	buff.Grow(20 + d.getSnapListLen()*20)
+	buff.Grow(28 + d.getSnapListLen()*20)
 	if err := binary.Write(buff, binary.BigEndian, &d.Inode); err != nil {
 		panic(err)
 	}
@@ -803,7 +803,7 @@ func (d *Dentry) UnmarshalValue(val []byte) (err error) {
 	}
 	err = binary.Read(buff, binary.BigEndian, &d.Type)
 	log.LogDebugf("action[UnmarshalValue] dentry name %v, inode %v, parent inode %v, val len %v", d.Name, d.Inode, d.ParentId, len(val))
-	if len(val) >= 20 {
+	if len(val) >= 28 {
 		var seq uint64
 		if err = binary.Read(buff, binary.BigEndian, &seq); err != nil {
 			return
