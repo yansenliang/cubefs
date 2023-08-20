@@ -376,7 +376,7 @@ func (w *Wrapper) updateDataPartitionByRsp(isInit bool, DataPartitions []*proto.
 	}
 
 	// isInit used to identify whether this call is caused by mount action
-	if isInit || (proto.IsCold(w.volType) && (len(rwPartitionGroups) >= 1)) {
+	if isInit || (len(rwPartitionGroups) >= 1) {
 		log.LogInfof("updateDataPartition: refresh dpSelector of volume(%v) with %v rw partitions(%v all)",
 			w.volName, len(rwPartitionGroups), len(DataPartitions))
 		w.refreshDpSelector(rwPartitionGroups)
