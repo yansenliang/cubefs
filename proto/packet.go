@@ -575,6 +575,8 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpMetaBatchDeleteInodeQuota"
 	case OpMetaGetInodeQuota:
 		m = "OpMetaGetInodeQuota"
+	default:
+		m = fmt.Sprintf("op:%v not found", p.Opcode)
 	}
 	return
 }
