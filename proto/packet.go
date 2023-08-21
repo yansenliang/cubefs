@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cbnet/cbrdma"
 	"io"
 	"net"
 	"strconv"
@@ -775,7 +776,7 @@ func (p *Packet) WriteToConnNs(c net.Conn, timeoutNs int64) (err error) {
 	return p.writeToConn(c)
 }
 
-func (p *Packet) writeToConn(c net.Conn) (err error) {
+func (p *Packet) writeToTCPConn(c net.Conn) (err error) {
 	header, err := Buffers.Get(unit.PacketHeaderSize)
 	if err != nil {
 		header = make([]byte, unit.PacketHeaderSize)
@@ -791,6 +792,33 @@ func (p *Packet) writeToConn(c net.Conn) (err error) {
 	}
 
 	return
+}
+
+func (p *Packet) writeToRDMAConn(conn *cbrdma.RDMAConn) (err error) {
+	var buff []byte
+	if buff, err = conn.GetSendBuf(int(unit.PacketHeaderSize + p.Size), int( (time.Second * 2).Microseconds() )); err != nil {
+		return
+	}
+
+	if len(buff) < int(p.Size + unit.PacketHeaderSize) {
+		return fmt.Errorf("conn(%d-%p) get send buff failed", conn.GetNd(), conn)
+	}
+
+	p.MarshalHeader(buff)
+	copy(buff[unit.PacketHeaderSize:], p.Data)
+	if _, err = conn.Write(buff); err != nil {
+		return
+	}
+	return
+}
+
+func (p *Packet) writeToConn(c net.Conn)  error {
+	switch c.(type) {
+	case *cbrdma.RDMAConn:
+		return p.writeToRDMAConn(c.(*cbrdma.RDMAConn))
+	default:
+		return p.writeToTCPConn(c)
+	}
 }
 
 // ReadFull is a wrapper function of io.ReadFull.

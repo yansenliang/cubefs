@@ -78,6 +78,7 @@ type MetaNode struct {
 	limitManager      *multirate.LimiterManager
 
 	rdma 			  *rdmaInfo.RDMASysInfo
+	rdmaServer   	  *cbrdma.RDMAServer
 }
 
 // Start starts up the meta node with the specified configuration.

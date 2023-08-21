@@ -21,9 +21,38 @@ import (
 	"io"
 	"net"
 	"time"
-
+	"github.com/cbnet/cbrdma"
+	"github.com/cubefs/cubefs/util/unit"
+	"strconv"
+	"unsafe"
 	"github.com/cubefs/cubefs/util/log"
 )
+
+func onRecv(conn *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
+	m := (*MetaNode) (conn.GetUserContext())
+	p := NewPacket(context.Background())
+	_ = p.UnmarshalHeader(buffer)
+	p.Data = make([]byte, p.Size)
+	copy(p.Data, buffer[unit.PacketHeaderSize: unit.PacketHeaderSize + p.Size])
+	go m.handlePacket(conn, p, conn.RemoteAddr().String())
+	return
+}
+
+func onDisconnected(conn *cbrdma.RDMAConn) {
+	conn.Close()
+	return
+}
+
+func onClosed(conn *cbrdma.RDMAConn) {
+	conn.Close()
+	return
+}
+
+func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
+	conn := &cbrdma.RDMAConn{}
+	conn.Init(onRecv, nil, onDisconnected, onClosed, server.GetUserContext())
+	return conn
+}
 
 // StartTcpService binds and listens to the specified port.
 func (m *MetaNode) startServer() (err error) {
@@ -33,9 +62,25 @@ func (m *MetaNode) startServer() (err error) {
 	if err != nil {
 		return
 	}
+
+	m.rdmaServer = &cbrdma.RDMAServer{}
+	m.rdmaServer.Init(AcceptCbFunc, onRecv, nil, onDisconnected, onClosed, unsafe.Pointer(m))
+	port, _ := strconv.Atoi(m.listen)
+	port += 10000
+	if rdmaErr := m.rdmaServer.Listen("", port, 8 * KB, 8, 0); rdmaErr != nil {
+		log.LogErrorf("rdma listen failed, err:%v", rdmaErr.Error())
+		m.rdmaServer = nil
+	}
+
 	go func(stopC chan uint8) {
-		defer ln.Close()
 		var latestAlarm time.Time
+		defer func() {
+			ln.Close()
+			if m.rdmaServer != nil {
+				m.rdmaServer.Close()
+			}
+			m.rdmaServer = nil
+		}()
 		for {
 			conn, err := ln.Accept()
 			select {
