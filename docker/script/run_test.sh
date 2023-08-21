@@ -291,7 +291,7 @@ run_unit_test() {
 
     test_output_file=${cover_path}/unittest.out
     echo "Running unit tests ..."
-    go test -v -covermode=atomic -timeout 20m -coverprofile=${cover_path}/unittest.cov ${packages} > ${test_output_file}
+    go test -tags rdma_fake -v -covermode=atomic -timeout 20m -coverprofile=${cover_path}/unittest.cov ${packages} > ${test_output_file}
     ret=$?
     popd > /dev/null
     pass_num=`grep "PASS:" ${test_output_file} | wc -l`

@@ -9,10 +9,13 @@ build_opt=$1
 
 case ${build_opt} in
 	test)
-		go test -c -covermode=atomic -coverpkg="../..." -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o cfs-server
+		go test -tags rdma_fake -c -covermode=atomic -coverpkg="../..." -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o cfs-server
+		;;
+  rdma)
+    go build -tags rdma -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o cfs-server-rdma
 		;;
 	*)
-    go build -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o cfs-server
+    go build -tags rdma_fake -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o cfs-server
 esac
 
 

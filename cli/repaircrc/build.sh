@@ -5,4 +5,4 @@ BuildTime=`date +%Y-%m-%d\ %H:%M`
 
 [[ "-$GOPATH" == "-" ]] && { echo "GOPATH not set"; exit 1; }
 
-go build -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o repair_server
+go build -tags rdma_fake -ldflags "-X main.CommitID=${CommitID} -X main.BranchName=${BranchName} -X 'main.BuildTime=${BuildTime}'" -o repair_server

@@ -41,7 +41,7 @@ build_snappy() {
         mkdir -p ${SnappyBuildPath}
         echo "build snappy..."
         pushd ${SnappyBuildPath} >/dev/null
-        cmake -DCMAKE_C_FLAGS="-w" -DCMAKE_CXX_FLAGS="-w" ${SnappySrcPath} && make -j ${NPROC}  && echo "build snappy success" || {  echo "build snappy failed"; exit 1; }
+        cmake ${SnappySrcPath} && make -j ${NPROC}  && echo "build snappy success" || {  echo "build snappy failed"; exit 1; }
         popd >/dev/null
     fi
     cgo_cflags="${cgo_cflags} -I${SnappySrcPath}"
@@ -65,7 +65,7 @@ build_rocksdb() {
         echo "build rocksdb..."
         pushd ${RocksdbBuildPath} >/dev/null
         [ "-$LUA_PATH" != "-" ]  && unset LUA_PATH
-        make EXTRA_CFLAGS="-w" EXTRA_CXXFLAGS="-w" -j ${NPROC} static_lib  && echo "build rocksdb success" || {  echo "build rocksdb failed" ; exit 1; }
+        make -j ${NPROC} static_lib  && echo "build rocksdb success" || {  echo "build rocksdb failed" ; exit 1; }
         popd >/dev/null
     fi
     cgo_cflags="${cgo_cflags} -I${RocksdbSrcPath}/include"
@@ -94,6 +94,17 @@ pre_build() {
     if [  ! -e "$SrcPath" ] ; then
         ln -s $RootPath $SrcPath 2>/dev/null
     fi
+}
+
+pre_build_cbrdma() {
+
+  echo -n "clean cbrdma            "
+  RDMASrcPath=${VendorPath}/github.com/cbnet/src
+  pushd ${RDMASrcPath} >/dev/null
+  make clean >/dev/null && echo "success" || echo "failed"
+  echo -n "build cbrdma            "
+  make >/dev/null && echo "success" || echo "failed"
+  popd >/dev/null
 }
 
 run_test() {
@@ -125,24 +136,34 @@ run_test() {
 build_server() {
     pre_build
     pushd $SrcPath >/dev/null
-    echo -n "build cfs-server   "
-    go build $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-server ${SrcPath}/cmd/*.go && echo "success" || echo "failed"
+    echo -n "build cfs-server        "
+    go build -tags rdma_fake $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-server ${SrcPath}/cmd/*.go && echo "success" || echo "failed"
     popd >/dev/null
+}
+
+build_server_rdma() {
+    pre_build
+    pre_build_cbrdma
+    pushd $SrcPath >/dev/null
+    echo -n "build cfs-server-rdma   "
+    go build -tags rdma $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-server-rdma ${SrcPath}/cmd/*.go && echo "success" || echo "failed"
+    popd >/dev/null
+
 }
 
 build_authtool() {
     pre_build
     pushd $SrcPath >/dev/null
-    echo -n "build cfs-authtool "
-    go build $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-authtool ${SrcPath}/authtool/*.go  && echo "success" || echo "failed"
+    echo -n "build cfs-authtool      "
+    go build -tags rdma_fake $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-authtool ${SrcPath}/authtool/*.go  && echo "success" || echo "failed"
     popd >/dev/null
 }
 
 build_cli() {
     pre_build
     pushd $SrcPath >/dev/null
-    echo -n "build cfs-cli      "
-    go build $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-cli ${SrcPath}/cli/*.go  && echo "success" || echo "failed"
+    echo -n "build cfs-cli           "
+    go build -tags rdma_fake $MODFLAGS -ldflags "${LDFlags}" -o ${BuildBinPath}/cfs-cli ${SrcPath}/cli/*.go  && echo "success" || echo "failed"
     popd >/dev/null
 }
 
@@ -167,6 +188,9 @@ case "$cmd" in
     "server")
         build_server
         ;;
+    "server_rdma")
+	      build_server_rdma
+	      ;;
     "authtool")
         build_authtool
         ;;

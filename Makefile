@@ -3,6 +3,7 @@
 
 BIN_PATH := build/bin
 BIN_SERVER := $(BIN_PATH)/cfs-server
+BIN_SERVER_RDMA := $(BIN_PATH)/cfs-server-rdma
 BIN_CLIENT := $(BIN_PATH)/cfs-client
 BIN_CLIENT2 := $(BIN_PATH)/cfs-client2
 BIN_AUTHTOOL := $(BIN_PATH)/cfs-authtool
@@ -23,6 +24,8 @@ default: all
 phony := all
 all: build
 
+rdma: $(BIN_SERVER_RDMA)
+
 phony += build server authtool client client2 cli
 build: server client cli
 
@@ -38,6 +41,8 @@ cli: $(BIN_CLI)
 
 $(BIN_SERVER): $(COMMON_SRC) $(SERVER_SRC)
 	@build/build.sh server
+$(BIN_SERVER_RDMA): $(COMMON_SRC) $(SERVER_SRC)
+	@build/build.sh server_rdma
 
 $(BIN_CLIENT): $(COMMON_SRC) $(CLIENT_SRC)
 	@build/build.sh client
