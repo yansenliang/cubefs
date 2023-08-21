@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cubefs/cubefs/util/iputil"
+	"github.com/cbnet/cbrdma"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -32,11 +34,12 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
 	"github.com/cubefs/cubefs/util/iputil"
 
 	"github.com/cubefs/cubefs/util/topology"
-
+	"github.com/cubefs/cubefs/util/cpu"
+	"github.com/cubefs/cubefs/util/statinfo"
+	"github.com/cubefs/cubefs/util/rdmainfo"
 	"github.com/cubefs/cubefs/cmd/common"
 	"github.com/cubefs/cubefs/proto"
 	"github.com/cubefs/cubefs/raftstore"
@@ -121,6 +124,12 @@ type DataNode struct {
 	processStatInfo          *statinfo.ProcessStatInfo
 	topoManager              *topology.TopologyManager
 	transferDeleteLock       sync.Mutex
+	rdma 					 *rdmaInfo.RDMASysInfo
+	//lastErrTimeStamp         int64
+	//connManager  			 *rdmaInfo.ConnManager
+	//monitorMu				 sync.RWMutex
+	//localRDMAMonitor         map[int]*rdmaInfo.RDMAMonitorElem
+	//clusterRDMAMonitor       map[int]*rdmaInfo.RDMAMonitorElem
 }
 
 func NewServer() *DataNode {
@@ -176,6 +185,20 @@ func doStart(server common.Server, cfg *config.Config) (err error) {
 	// start the raft server
 	if err = s.startRaftServer(cfg); err != nil {
 		return
+	}
+
+	statPath := cfg.GetString(rdmaInfo.CfgKeyRdmaStatPath)
+	if statPath != "" {
+		statPath = path.Join(statPath, "datanode")
+	}
+
+	logH := log.GetLogFileHandler()
+	cbrdma.InitNetEnv(1, int(logH.GetLogLevel()), -1, s.localIP, logH)
+
+	rdmaInfo.InitRdmaLogHandler(logH)
+	if s.rdma, err = rdmaInfo.NewNetSysInfo(s.localIP, statPath); err != nil {
+		log.LogErrorf("get rdma [ip:%s]info failed:%s", s.localIP, err.Error())
+		err = nil
 	}
 
 	// create space manager (disk, partition, etc.)

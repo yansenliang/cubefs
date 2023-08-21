@@ -18,7 +18,11 @@ import (
 	"fmt"
 	"github.com/cubefs/cubefs/util/iputil"
 	"github.com/cubefs/cubefs/util/topology"
+	"github.com/cbnet/cbrdma"
+	rdmaInfo "github.com/cubefs/cubefs/util/rdmainfo"
+	"github.com/cubefs/cubefs/util/statinfo"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -72,6 +76,8 @@ type MetaNode struct {
 	topoManager       *topology.TopologyManager
 	control           common.Control
 	limitManager      *multirate.LimiterManager
+
+	rdma 			  *rdmaInfo.RDMASysInfo
 }
 
 // Start starts up the meta node with the specified configuration.
@@ -154,6 +160,20 @@ func doStart(s common.Server, cfg *config.Config) (err error) {
 	go m.startUpdateNodeInfo()
 
 	exporter.Init(exporter.NewOptionFromConfig(cfg).WithCluster(m.clusterId).WithModule(cfg.GetString("role")).WithZone(m.zoneName))
+
+	statPath := cfg.GetString(rdmaInfo.CfgKeyRdmaStatPath)
+	if statPath != "" {
+		statPath = path.Join(statPath, "datanode")
+	}
+
+	logH := log.GetLogFileHandler()
+	cbrdma.InitNetEnv(1, int(logH.GetLogLevel()), -1, m.localAddr, logH)
+
+	rdmaInfo.InitRdmaLogHandler(logH)
+	if m.rdma, err = rdmaInfo.NewNetSysInfo(m.localAddr, statPath); err != nil {
+		log.LogErrorf("get rdma [ip:%s]info failed:%s", m.localAddr, err.Error())
+		err = nil
+	}
 
 	// check local partition compare with master ,if lack,then not start
 	if err = m.checkLocalPartitionMatchWithMaster(); err != nil {

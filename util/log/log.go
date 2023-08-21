@@ -337,6 +337,17 @@ func InitLog(dir, module string, level Level, rotate *LogRotate) (*Log, error) {
 	return l, nil
 }
 
+func GetLogFileHandler() *Log {
+	return gLog
+}
+
+func (l *Log) GetLogLevel() Level {
+	if l == nil {
+		return 0
+	}
+	return l.level
+}
+
 func (l *Log) initLog(logDir, module string, level Level) error {
 	logOpt := log.LstdFlags | log.Lmicroseconds
 
@@ -499,6 +510,19 @@ func LogWarnf(format string, v ...interface{}) {
 	gLog.warnLogger.Output(2, s)
 }
 
+func (l *Log) Warn (format string, v ...interface{}) {
+	if l == nil {
+		return
+	}
+
+	if WarnLevel&l.level != l.level {
+		return
+	}
+	s := fmt.Sprintf(format, v...)
+	s = l.SetPrefix(s, levelPrefixes[2])
+	l.warnLogger.Output(2, s)
+}
+
 // LogInfo indicates log the information. TODO explain
 func LogInfo(v ...interface{}) {
 	if gLog == nil {
@@ -523,6 +547,19 @@ func LogInfof(format string, v ...interface{}) {
 	s := fmt.Sprintf(format, v...)
 	s = gLog.SetPrefix(s, levelPrefixes[1])
 	gLog.infoLogger.Output(2, s)
+}
+
+func (l *Log) Info(format string, v ...interface{}) {
+	if l == nil {
+		return
+	}
+
+	if InfoLevel&l.level != l.level {
+		return
+	}
+	s := fmt.Sprintf(format, v...)
+	s = l.SetPrefix(s, levelPrefixes[1])
+	l.infoLogger.Output(2, s)
 }
 
 func LogIfNotNil(e error) {
@@ -567,6 +604,19 @@ func LogErrorf(format string, v ...interface{}) {
 	s := fmt.Sprintf(format, v...)
 	s = gLog.SetPrefix(s, levelPrefixes[3])
 	gLog.errorLogger.Print(s)
+}
+
+func (l *Log) Error (format string, v ...interface{}) {
+	if l == nil {
+		return
+	}
+
+	if ErrorLevel&l.level != l.level {
+		return
+	}
+	s := fmt.Sprintf(format, v...)
+	s = l.SetPrefix(s, levelPrefixes[3])
+	l.errorLogger.Output(2, s)
 }
 
 func IsDebugEnabled() bool {
@@ -619,6 +669,18 @@ func LogDebugf(format string, v ...interface{}) {
 	s := fmt.Sprintf(format, v...)
 	s = gLog.SetPrefix(s, levelPrefixes[0])
 	gLog.debugLogger.Output(2, s)
+}
+func (l *Log) Debug (format string, v ...interface{}) {
+	if l == nil {
+		return
+	}
+
+	if DebugLevel&l.level != l.level {
+		return
+	}
+	s := fmt.Sprintf(format, v...)
+	s = l.SetPrefix(s, levelPrefixes[0])
+	l.debugLogger.Output(2, s)
 }
 
 // LogFatal logs the fatal errors.

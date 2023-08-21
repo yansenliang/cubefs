@@ -144,11 +144,16 @@ func (tp *umpTP) Set(err error) {
 	}
 }
 
+<<<<<<< HEAD
 func (tp *umpTP) SetWithCount(value int64, err error) {
+=======
+func (tp *umpTP) SetWithValue(value int64, err error) {
+>>>>>>> c5f85ac4b... add rdma info, meta/data init rdma
 	if tp == nil {
 		return
 	}
 	if tp.to != nil {
+<<<<<<< HEAD
 		ump.AfterTPWithCount(tp.to, value, err)
 	}
 }
@@ -168,6 +173,9 @@ func (tp *umpTP) SetWithCostUS(value int64, err error) {
 	}
 	if tp.to != nil {
 		ump.AfterTPWithCostUS(tp.to, value, err)
+=======
+		ump.AfterTPWithValue(tp.to, value, err)
+>>>>>>> c5f85ac4b... add rdma info, meta/data init rdma
 	}
 }
 
@@ -189,6 +197,7 @@ func (tp *noonTP) Set(_ error) {
 	return
 }
 
+<<<<<<< HEAD
 func (tp *noonTP) SetWithCount(value int64, err error) {
 	return
 }
@@ -198,6 +207,9 @@ func (tp *noonTP) SetWithCost(value int64, err error) {
 }
 
 func (tp *noonTP) SetWithCostUS(value int64, err error) {
+=======
+func (tp *noonTP) SetWithValue(value int64, err error) {
+>>>>>>> c5f85ac4b... add rdma info, meta/data init rdma
 	return
 }
 
@@ -211,6 +223,7 @@ func (tp multipleTP) Set(err error) {
 	}
 }
 
+<<<<<<< HEAD
 func (tp multipleTP) SetWithCount(value int64, err error) {
 	for _, recorder := range tp {
 		recorder.SetWithCount(value, err)
@@ -226,6 +239,11 @@ func (tp multipleTP) SetWithCost(value int64, err error) {
 func (tp multipleTP) SetWithCostUS(value int64, err error) {
 	for _, recorder := range tp {
 		recorder.SetWithCostUS(value, err)
+=======
+func (tp multipleTP) SetWithValue(value int64, err error) {
+	for _, recorder := range tp {
+		recorder.SetWithValue(value, err)
+>>>>>>> c5f85ac4b... add rdma info, meta/data init rdma
 	}
 }
 

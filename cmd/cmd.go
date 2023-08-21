@@ -161,12 +161,14 @@ func run() error {
 	}
 
 	if !*configForeground {
-		if err := startDaemon(); err != nil {
+		if err := startDaemon(cfg.GetString(ConfigKeyRole)); err != nil {
 			fmt.Printf("Server start failed: %v\n", err)
 			return err
 		}
 		return nil
 	}
+
+	_ = os.Setenv("GODEBUG", "cgocheck=0")
 
 	/*
 	 * We are in daemon from here.
@@ -351,7 +353,7 @@ func run() error {
 	return nil
 }
 
-func startDaemon() error {
+func startDaemon(role string) error {
 	cmdPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("startDaemon failed: cannot get absolute command path, err(%v)", err)
@@ -368,6 +370,10 @@ func startDaemon() error {
 
 	env := []string{
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
+	}
+
+	if role == RoleMeta || role == RoleData {
+		env = append(env, "GODEBUG=cgocheck=0")
 	}
 
 	err = daemonize.Run(cmdPath, args, env, os.Stdout)

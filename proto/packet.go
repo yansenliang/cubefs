@@ -75,6 +75,7 @@ const (
 	OpSyncRandomWrite                uint8 = 0x12
 	OpSyncWrite                      uint8 = 0x13
 	OpReadTinyDeleteRecord           uint8 = 0x14
+	OpEcTinyDelInfoRead                    = OpReadTinyDeleteRecord
 	OpTinyExtentRepairRead           uint8 = 0x15
 	OpGetMaxExtentIDAndPartitionSize uint8 = 0x16
 	OpGetAllWatermarksV2             uint8 = 0x17
@@ -85,6 +86,7 @@ const (
 	OpFingerprint                    uint8 = 0x1c
 	OpEcTinyDelInfoRead                    = OpReadTinyDeleteRecord
 	OpLockOrUnlockExtent             uint8 = 0x1d
+	OpGetRdmaInfo                    uint8 = 0x1e
 
 	// Operations: Client -> MetaNode.
 	OpMetaCreateInode   uint8 = 0x20
