@@ -42,7 +42,7 @@ import (
 	raftProto "github.com/tiglabs/raft/proto"
 )
 
-func (s *DataNode) OperatePacket(p *repl.Packet, c *net.TCPConn) (err error) {
+func (s *DataNode) OperatePacket(p *repl.Packet, c net.Conn) (err error) {
 	sz := p.Size
 
 	tpObject := exporter.NewModuleTP(p.GetOpMsg())
@@ -1152,7 +1152,7 @@ func (s *DataNode) handleTinyExtentAvaliRead(request *repl.Packet, connect net.C
 	return
 }
 
-func (s *DataNode) handlePacketToReadTinyDeleteRecordFile(p *repl.Packet, connect *net.TCPConn) {
+func (s *DataNode) handlePacketToReadTinyDeleteRecordFile(p *repl.Packet, connect net.Conn) {
 	var (
 		err error
 	)
@@ -1772,6 +1772,68 @@ func (s *DataNode) forwardToRaftLeaderWithTimeOut(dp *DataPartition, p *repl.Pac
 	}
 	if err = p.ReadFromConn(conn, proto.ReadDeadlineTime); err != nil {
 		return
+	}
+
+	return
+}
+
+func (s *DataNode) rateLimit(p *repl.Packet, c net.Conn) {
+	if !isRateLimitOn {
+		return
+	}
+
+	// ignore rate limit if request is from cluster internal nodes
+	addrSlice := strings.Split(c.RemoteAddr().String(), ":")
+	_, isInternal := clusterMap[addrSlice[0]]
+	if isInternal {
+		return
+	}
+
+	ctx := context.Background()
+	// request rate limit for entire data node
+	if reqRateLimit > 0 {
+		reqRateLimiter.Wait(ctx)
+	}
+
+	// request rate limit for opcode
+	limiter, ok := reqOpRateLimiterMap[p.Opcode]
+	if ok {
+		limiter.Wait(ctx)
+	}
+
+	partition, ok := p.Object.(*DataPartition)
+	if !ok {
+		return
+	}
+
+	// request rate limit for volume & opcode
+	opRatelimiterMap, ok := reqVolOpRateLimiterMap[partition.volumeID]
+	if ok {
+		limiter, ok = opRatelimiterMap[p.Opcode]
+		if ok {
+			limiter.Wait(ctx)
+		}
+	}
+
+	// request rate limit of each data partition for volume
+	partRateLimiterMap, ok := reqVolPartRateLimiterMap[partition.volumeID]
+	if ok {
+		limiter, ok = partRateLimiterMap[partition.partitionID]
+		if ok {
+			limiter.Wait(ctx)
+		}
+	}
+
+	// request rate limit of each data partition for volume & opcode
+	opPartRateLimiterMap, ok := reqVolOpPartRateLimiterMap[partition.volumeID]
+	if ok {
+		partRateLimiterMap, ok = opPartRateLimiterMap[p.Opcode]
+		if ok {
+			limiter, ok = partRateLimiterMap[partition.partitionID]
+			if ok {
+				limiter.Wait(ctx)
+			}
+		}
 	}
 
 	return

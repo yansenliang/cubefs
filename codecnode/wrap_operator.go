@@ -29,7 +29,7 @@ import (
 	"github.com/cubefs/cubefs/util/log"
 )
 
-func (s *CodecServer) OperatePacket(p *repl.Packet, c *net.TCPConn) (err error) {
+func (s *CodecServer) OperatePacket(p *repl.Packet, c net.Conn) (err error) {
 	sz := p.Size
 	tpObject := exporter.NewModuleTP(p.GetOpMsg())
 	start := time.Now().UnixNano()

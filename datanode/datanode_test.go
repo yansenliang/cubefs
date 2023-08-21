@@ -323,7 +323,7 @@ func (fdn *fakeDataNode) operateHandle(t *testing.T, p *repl.Packet) (opCode uin
 	}
 
 	defer conn.Close()
-	err = fdn.OperatePacket(p, conn.(*net.TCPConn))
+	err = fdn.OperatePacket(p, conn.(net.Conn))
 	if err != nil {
 		msg = fmt.Sprintf("%v", err)
 	}

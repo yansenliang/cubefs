@@ -18,7 +18,7 @@ import (
 	"github.com/cubefs/cubefs/util/unit"
 )
 
-func (e *EcNode) OperatePacket(p *repl.Packet, c *net.TCPConn) (err error) {
+func (e *EcNode) OperatePacket(p *repl.Packet, c net.Conn) (err error) {
 	sz := p.Size
 	tpObject := exporter.NewModuleTP(p.GetOpMsg())
 	start := time.Now().UnixNano()
@@ -127,7 +127,7 @@ func (e *EcNode) handleEcTinyDeletePacket(p *repl.Packet, c net.Conn) {
 	return
 }
 
-func (e *EcNode) handlePacketToReadOriginTinyDelRecord(p *repl.Packet, connect *net.TCPConn) {
+func (e *EcNode) handlePacketToReadOriginTinyDelRecord(p *repl.Packet, connect net.Conn) {
 	var (
 		err       error
 		replyData []byte
@@ -162,7 +162,7 @@ func (e *EcNode) handlePacketToReadOriginTinyDelRecord(p *repl.Packet, connect *
 	return
 }
 
-func (e *EcNode) handlePacketToReadTinyDeleteRecord(p *repl.Packet, connect *net.TCPConn) {
+func (e *EcNode) handlePacketToReadTinyDeleteRecord(p *repl.Packet, connect net.Conn) {
 	var (
 		err error
 	)
@@ -850,7 +850,7 @@ func (e *EcNode) handleWritePacket(p *repl.Packet) {
 	e.incDiskErrCnt(p.PartitionID, err, WriteFlag)
 }
 
-func (e *EcNode) handleReadPacket(p *repl.Packet, c *net.TCPConn) {
+func (e *EcNode) handleReadPacket(p *repl.Packet, c net.Conn) {
 	var (
 		err              error
 		originExtentSize uint64
