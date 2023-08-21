@@ -37,9 +37,11 @@ import "C"
 import (
 	"container/list"
 	"fmt"
+	"net"
 	"runtime"
 	"strconv"
 	"sync/atomic"
+	"time"
 	"unsafe"
 )
 
@@ -136,7 +138,7 @@ func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memTy
 
 	conn.connType = CONN_TYPE_ACTIVE
 	atomic.StoreInt32(&conn.state, CONN_ST_CONNECTED)
-	conn.remoteAddr = ip + strconv.Itoa(port)
+	conn.remoteAddr = RDMAAddr{addr: ip + strconv.Itoa(port)}
 	gConnMap.Store(conn.connPtr, conn)
 	return nil
 }
@@ -211,6 +213,26 @@ func (conn *RDMAConn) ReleaseRecvBuffer(buff []byte) (err error) {
 	return
 }
 
+func (conn *RDMAConn) LocalAddr() net.Addr {
+	return nil
+}
+
+func (conn *RDMAConn) RemoteAddr() net.Addr {
+	return nil
+}
+
+func (conn *RDMAConn)  SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (conn *RDMAConn) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (conn *RDMAConn) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
 func (conn *RDMAConn) Close() error {
 
 	if _, exist := gConnMap.LoadAndDelete(conn.connPtr); !exist {
@@ -249,23 +271,21 @@ func ServerOnAccept(serverNd C.uint64_t, connNd C.uint64_t, context *C.void) C.i
 		return 0
 	}
 
-	if conn.onRecv == nil {
-		conn.onRecv = server.DefOnRecv
-	}
+	//if conn.onRecv == nil {
+	//	conn.onRecv = server.DefOnRecv
+	//}
+	//
+	//if conn.onSend == nil {
+	//	conn.onSend = server.DefOnSend
+	//}
 
-	if conn.onSend == nil {
-		conn.onSend = server.DefOnSend
-	}
-
-
-	if conn.onClosed == nil {
-		conn.onClosed = server.DefOnClosed
-	}
-
-	if conn.onDisconnected == nil {
-		conn.onDisconnected = server.DefOnDisconnected
-	}
-
+	//if conn.onClosed == nil {
+	//	conn.onClosed = server.DefOnClosed
+	//}
+	//
+	//if conn.onDisconnected == nil {
+	//	conn.onDisconnected = server.DefOnDisconnected
+	//}
 
 	atomic.StoreInt32(&conn.state, CONN_ST_CONNECTED)
 	conn.connPtr = connNd
@@ -283,7 +303,7 @@ func NewServer(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend OnSendFunc, onDi
 	server.DefOnDisconnected = onDisconnected
 	server.DefOnError = onDisconnected
 	server.DefOnClosed = onClosed
-	server.Ctx = ctx
+	server.ctx = ctx
 	return server
 }
 
@@ -294,7 +314,7 @@ func (server *RDMAServer) Init(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend 
 	server.DefOnDisconnected = onDisconnected
 	server.DefOnError = onDisconnected
 	server.DefOnClosed = onClosed
-	server.Ctx = ctx
+	server.ctx = ctx
 }
 
 func (server *RDMAServer) Listen(ip string, port int, defRecvSize int, defRecvCnt int, memType int) error {

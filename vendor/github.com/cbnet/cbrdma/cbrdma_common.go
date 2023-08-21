@@ -40,6 +40,10 @@ const (
     RECV_BUFFER_ST_HOLD    = 1
 )
 
+const (
+    RDMA_NetWorker_STR  = "rdma"
+)
+
 var pollcnt uint64 = 0
 
 type NetLogger interface {
@@ -54,17 +58,14 @@ type RecvMsg struct {
     len      int
 }
 
+type RDMAAddr struct {
+    addr   string
+}
+
 type RDMAConn struct {
     connPtr  C.uint64_t
     connType int
     state    int32
-
-    sendRef int32
-    sendBuf []byte
-
-    recvRef int32
-    recvBuf []byte
-    recvLen int
 
     //user cb
     onRecv OnRecvFunc
@@ -79,11 +80,11 @@ type RDMAConn struct {
     rFd         C.int
     wFd         C.int
 
-    recvDeadLine time.Time
-    sendDeadLine time.Time
+    recvDeadLine time.Duration
+    sendDeadLine time.Duration
 
-    localAddr  string
-    remoteAddr string
+    localAddr  RDMAAddr
+    remoteAddr RDMAAddr
 
     ctx unsafe.Pointer
 }
@@ -100,7 +101,7 @@ type RDMAServer struct {
     DefOnDisconnected OnDisconnectedFunc
     DefOnError OnDisconnectedFunc
     DefOnClosed OnClosedFunc
-    Ctx        unsafe.Pointer
+    ctx        unsafe.Pointer
 }
 
 type ConnCounter struct {
@@ -127,6 +128,14 @@ func CbuffToSlice(ptr unsafe.Pointer, length int) []byte {
     return slice
 }
 
+func (r *RDMAAddr) Network() string {
+    return RDMA_NetWorker_STR
+}
+
+func (r *RDMAAddr) String() string {
+    return r.addr
+}
+
 func (conn *RDMAConn) GetConnType() int {
     return conn.connType
 }
@@ -138,3 +147,8 @@ func (conn *RDMAConn) GetNd() uint64 {
 func (conn *RDMAConn) GetUserContext() unsafe.Pointer {
     return conn.ctx
 }
+
+func (server *RDMAServer) GetUserContext() unsafe.Pointer {
+    return server.ctx
+}
+

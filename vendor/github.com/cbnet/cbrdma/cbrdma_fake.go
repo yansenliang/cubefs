@@ -4,6 +4,8 @@ package cbrdma
 
 import "fmt"
 import "unsafe"
+import "net"
+import "time"
 
 func (conn *RDMAConn) Init(recvFunc OnRecvFunc, sendFunc OnSendFunc, disconnectedFunc OnDisconnectedFunc, closedFunc OnClosedFunc, ctx unsafe.Pointer) {
     return
@@ -44,6 +46,26 @@ func (conn *RDMAConn) Close() error {
 func (conn *RDMAConn) GetCounter() *ConnCounter {
     info := &ConnCounter{}
     return info
+}
+
+func (conn *RDMAConn) LocalAddr() net.Addr {
+    return nil
+}
+
+func (conn *RDMAConn) RemoteAddr() net.Addr {
+    return nil
+}
+
+func (conn *RDMAConn)  SetDeadline(t time.Time) error {
+    return nil
+}
+
+func (conn *RDMAConn) SetReadDeadline(t time.Time) error {
+    return nil
+}
+
+func (conn *RDMAConn) SetWriteDeadline(t time.Time) error {
+    return nil
 }
 
 func NewServer(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend OnSendFunc, onDisconnected OnDisconnectedFunc, onClosed OnClosedFunc, ctx unsafe.Pointer) *RDMAServer {

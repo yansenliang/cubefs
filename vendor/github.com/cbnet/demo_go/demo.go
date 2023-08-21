@@ -117,7 +117,7 @@ func onClosed(conn *cbrdma.RDMAConn) {
 }
 
 func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
-	s := (*CbServer)(server.Ctx)
+	s := (*CbServer)(server.GetUserContext())
 	conn := &CbConnect{}
 	conn.Init(onRecv, onSend, onDisconnected, onClosed, unsafe.Pointer(conn))
 	s.connMap[conn.GetNd()] = conn
@@ -156,7 +156,7 @@ func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 }
 
 func SyncAcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
-	s := (*CbServer)(server.Ctx)
+	s := (*CbServer)(server.GetUserContext())
 	conn := &CbConnect{}
 	conn.Init(nil, nil, onDisconnected, onClosed, unsafe.Pointer(conn))
 	s.connMap[conn.GetNd()] = conn
