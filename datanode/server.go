@@ -15,6 +15,7 @@
 package datanode
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,7 @@ import (
 	"github.com/cubefs/cubefs/util/statinfo"
 	"github.com/cubefs/cubefs/util/statistics"
 	"github.com/cubefs/cubefs/util/unit"
+	"unsafe"
 )
 
 var (
@@ -125,6 +127,7 @@ type DataNode struct {
 	topoManager              *topology.TopologyManager
 	transferDeleteLock       sync.Mutex
 	rdma 					 *rdmaInfo.RDMASysInfo
+	rdmaServer               *cbrdma.RDMAServer
 	//lastErrTimeStamp         int64
 	//connManager  			 *rdmaInfo.ConnManager
 	//monitorMu				 sync.RWMutex
@@ -572,6 +575,39 @@ func (s *DataNode) registerHandler() {
 	http.HandleFunc("/risk/stopFix", s.stopRiskFix)
 }
 
+func onRecv(conn *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
+	m := (*DataNode) (conn.GetUserContext())
+	p := repl.NewPacket(context.Background())
+	_ = p.UnmarshalHeader(buffer)
+	p.Data = make([]byte, p.Size)
+	copy(p.Data, buffer[unit.PacketHeaderSize + p.ArgLen: unit.PacketHeaderSize + p.Size])
+	if err := m.checkPartition(p); err != nil {
+		//todo reply
+		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
+		p.WriteToConn(conn, 2)
+		return
+	}
+
+	go m.OperatePacket(p, conn)
+	return
+}
+
+func onDisconnected(conn *cbrdma.RDMAConn) {
+	conn.Close()
+	return
+}
+
+func onClosed(conn *cbrdma.RDMAConn) {
+	conn.Close()
+	return
+}
+
+func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
+	conn := &cbrdma.RDMAConn{}
+	conn.Init(onRecv, nil, onDisconnected, onClosed, server.GetUserContext())
+	return conn
+}
+
 func (s *DataNode) startTCPService() (err error) {
 	log.LogInfo("Start: startTCPService")
 	addr := fmt.Sprintf(":%v", s.port)
@@ -581,6 +617,15 @@ func (s *DataNode) startTCPService() (err error) {
 		log.LogError("failed to listen, err:", err)
 		return
 	}
+	s.rdmaServer = &cbrdma.RDMAServer{}
+	s.rdmaServer.Init(AcceptCbFunc, onRecv, nil, onDisconnected, onClosed, unsafe.Pointer(s))
+	port, _ := strconv.Atoi(s.port)
+	port += 10000
+	if rdmaErr := s.rdmaServer.Listen("", port, 132 * unit.KB, 8, 0); rdmaErr != nil {
+		log.LogErrorf("rdma listen failed, err:%v", rdmaErr.Error())
+		s.rdmaServer = nil
+	}
+
 	s.tcpListener = l
 	go func(ln net.Listener) {
 		for {
