@@ -504,6 +504,7 @@ static connect_t* init_connection(uint64_t nd, uint32_t recv_block_cnt) {
     }
     LOG(INFO, "malloc recv_buff:%p", conn->recv_buff);
     memset(conn->recv_buff, 0, sizeof(buffer_t) * recv_block_cnt);
+    conn->recv_timeout_ns = 2 * ONE_SEC_IN_NS;
     return conn;
 err:
     release_buffer(conn);
@@ -812,7 +813,7 @@ err:
 }
 
 void cbrdma_set_user_context(uint64_t nd, void * user_context) {
-    LOG(INFO, "cbrdma_set_user_context(%d, %p)", nd, user_context);
+    LOG(INFO, "cbrdma_set_user_context(%lu, %p)", nd, user_context);
     worker_t *worker = NULL;
     connect_t * conn = NULL;
     get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
@@ -820,6 +821,21 @@ void cbrdma_set_user_context(uint64_t nd, void * user_context) {
         return;
     }
     conn->context = user_context;
+    conn_del_ref(conn);
+    return;
+}
+
+void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us) {
+    LOG(INFO, "cbrdma_set_recv_timeout_us(%lu, %ld)", nd, timeout_us);
+    worker_t *worker = NULL;
+    connect_t * conn = NULL;
+    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL) {
+        return;
+    }
+    pthread_spin_lock(&conn->spin_lock);
+    conn->recv_timeout_ns = timeout_us * 1000;
+    pthread_spin_unlock(&conn->spin_lock);
     conn_del_ref(conn);
     return;
 }

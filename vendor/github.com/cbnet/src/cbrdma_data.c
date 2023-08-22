@@ -4,10 +4,6 @@
 #include "cbrdma.h"
 #include "common.h"
 
-#define COND_TIMEOUT_NS             500 * 1000 * 1000           //500ms
-#define ONE_SEC_IN_NS               1000000000L
-#define CLOSE_TIME_OUT              10 * ONE_SEC_IN_NS
-
 #define CBRDMA_DATA_MAGIC           0xFEFEFEFE
 
 extern log_handler_cb_t   g_log_handler;
@@ -451,7 +447,7 @@ failed:
     return;
 }
 
-void process_recv_meta(struct ibv_wc *wc, connect_t *conn) {
+void process_recv_meta(struct ibv_wc *wc, connect_t *conn, int64_t now) {
     assert(conn != NULL);
 
     conn_deal_ctl_cmd(conn);
@@ -461,6 +457,7 @@ void process_recv_meta(struct ibv_wc *wc, connect_t *conn) {
     if (conn->recv_cur == NULL && !list_is_empty(&conn->recv_free_list)) {
         conn->recv_cur = list_head(&conn->recv_free_list, buffer_t, node);
     }
+    conn->recv_time = now;
     pthread_spin_unlock(&conn->spin_lock);
 
     pthread_spin_lock(&conn->worker->lock);
@@ -506,7 +503,7 @@ int process_send_data(struct ibv_wc *wc, complete_msg_t *msg, connect_t *conn, b
     return 1;
 }
 
-int on_completion(struct ibv_wc *wc_arr, complete_msg_t *msg_arr, int len) {
+int on_completion(struct ibv_wc *wc_arr, complete_msg_t *msg_arr, int len, int64_t now) {
     int msg_index = 0;
     for (int i = 0; i < len; i++) {
         struct ibv_wc *wc = wc_arr + i;
@@ -542,7 +539,7 @@ int on_completion(struct ibv_wc *wc_arr, complete_msg_t *msg_arr, int len) {
         {
         case IBV_WC_RECV: //128
             /* code */
-            process_recv_meta(wc, conn);
+            process_recv_meta(wc, conn, now);
             break;
         case IBV_WC_SEND:  //0
             process_send_meta(wc, conn);
@@ -611,7 +608,7 @@ void process_close_list(worker_t *worker) {
     return;
 }
 
-static int update_recv_cur(connect_t* conn, block_header_t* head) {
+static int update_recv_cur(connect_t* conn, block_header_t* head, int64_t now) {
     uint16_t    recv_ack_cnt = 0;
     buffer_t *buff;
     uint64_t    notify_value = 1;
@@ -629,6 +626,7 @@ static int update_recv_cur(connect_t* conn, block_header_t* head) {
         conn->buff_ref++;
         conn->recv_head_index++;
     }
+    conn->recv_time = now;
 
     conn->recv_cur = NULL;
     if (!list_is_empty(&conn->recv_free_list)) {
@@ -680,6 +678,7 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
     buffer_t*     buff   = NULL;
     block_header_t* head = NULL;
     uint64_t notify_value = 1;
+    int64_t  recv_dead_line = -1;
 
     list_head_init(&retry_list);
     list_head_init(&task_list);
@@ -691,6 +690,7 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
 
     while(msg_index < len && (!list_is_empty(&task_list)) && count < 128) {
         count++;
+        recv_dead_line = -1;
         conn = list_extract_head(&task_list, connect_t, worker_node);
         pthread_spin_lock(&conn->spin_lock);
 
@@ -709,7 +709,20 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
         }
 
         buff = conn->recv_cur;
+        if (conn->recv_timeout_ns != -1) {
+            recv_dead_line = conn->recv_time + conn->recv_timeout_ns;
+        }
         pthread_spin_unlock(&conn->spin_lock);
+
+        // timeout
+        // timeout_ns = -1; without set recv timeout
+        // recv_time = 0; no recv
+        if (recv_dead_line != -1 && now > recv_dead_line) {
+            //recv timeout err wait close
+            LOG_WITH_LIMIT(ERROR, now, 60, 6, 1, "conn(%lu-%p) recv timeout", conn->nd, conn);
+            g_error_handler(conn->nd, conn->context);
+            continue;
+        }
 
         if (check_recv_data(conn, buff) != 0) {
             list_add_tail(&retry_list, &conn->worker_node);
@@ -717,7 +730,7 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
         }
 
         head = (block_header_t*)buff->data;
-        if (update_recv_cur(conn, head) == 0) {
+        if (update_recv_cur(conn, head, now) == 0) {
             list_add_tail(&recv_list, &conn->worker_node);
         }
 
@@ -742,7 +755,6 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
     pthread_spin_lock(&worker->lock);
     //todo add before
     list_splice_tail(&worker->conn_list, &task_list);
-
     //add tail
     list_splice_tail(&worker->conn_list, &retry_list);
     list_splice_tail(&worker->conn_list, &recv_list);
@@ -759,24 +771,22 @@ int cbrdma_worker_poll(uint32_t worker_id, complete_msg_t* msgs, int msg_len) {
     struct ibv_wc wc[CQ_CNT_PER_POLL];
     int  deal_len = msg_len > CQ_CNT_PER_POLL ? CQ_CNT_PER_POLL : msg_len;
     int  recv_msg_cnt = 0;
-    static uint32_t run_cnt    = 0;
-    static int64_t  poll_now   = 0;
 
     if (worker->w_pid == 0) {
         worker->w_pid = pthread_self();
     }
 
-    if (run_cnt % 1000 == 0) {
-        poll_now = get_time_ns();
+    if (worker->run_cycle % 1000 == 0) {
+        worker->last_active_time = get_time_ns();
     }
-    run_cnt++;
+    worker->run_cycle++;
 
     memset(wc, 0, sizeof(wc));
 
     //close
     process_close_list(worker);
 
-    recv_msg_cnt = process_recv_data(worker, msgs, msg_len / 2, poll_now);
+    recv_msg_cnt = process_recv_data(worker, msgs, msg_len / 2, worker->last_active_time);
 
     deal_len = (msg_len - recv_msg_cnt) > CQ_CNT_PER_POLL ? CQ_CNT_PER_POLL : (msg_len - recv_msg_cnt);
     if (deal_len == 0) {
@@ -791,7 +801,7 @@ int cbrdma_worker_poll(uint32_t worker_id, complete_msg_t* msgs, int msg_len) {
     }
 
     //error
-    ret = on_completion(wc, msgs + recv_msg_cnt, ret);
+    ret = on_completion(wc, msgs + recv_msg_cnt, ret, worker->last_active_time);
 
     return ret + recv_msg_cnt;
 }

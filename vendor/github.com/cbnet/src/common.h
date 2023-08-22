@@ -22,6 +22,10 @@
 #define CQ_CNT_PER_POLL         16
 #define GET_CONN_WIT_REF        1
 
+#define COND_TIMEOUT_NS             500 * 1000 * 1000           //500ms
+#define ONE_SEC_IN_NS               1000000000L
+#define CLOSE_TIME_OUT              10 * ONE_SEC_IN_NS
+
 #define set_conn_state(conn, t) do {\
         uint8_t old = conn->state;                                        \
         conn->state = t;                                                  \
@@ -111,6 +115,9 @@ typedef struct worker_st {
     uint8_t          id;
     uint32_t         qp_cnt;
     pthread_t        w_pid;
+
+    uint64_t         run_cycle;
+    int64_t          last_active_time;
 } worker_t;
 
 typedef struct net_env_st {
@@ -231,6 +238,7 @@ typedef struct conn_context_t {
     uint16_t      recv_tail_index;          //入队，控制wait_list是否可以入队
 
     int64_t       recv_time;                 //free list 出队计时，数据达到截止
+    int64_t       recv_timeout_ns;
     uint64_t      recv_cnt;
     uint64_t      recv_ack_cnt;              //需要返回给对端
 

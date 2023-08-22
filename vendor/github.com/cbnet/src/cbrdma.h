@@ -113,6 +113,8 @@ extern "C" {
     //在用户服务端接受连接时，将用户上下文跟nd关联起来
     void cbrdma_set_user_context(uint64_t nd, void * user_context);
 
+    void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us);
+
     //return msg numer
     int cbrdma_worker_poll(uint32_t worker_id, complete_msg_t* msgs, int msg_len);
 
