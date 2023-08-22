@@ -847,7 +847,46 @@ func (p *Packet) ReadFromConnNs(c net.Conn, timeoutNs int64) (err error) {
 	return p.readFromConn(c)
 }
 
-func (p *Packet) readFromConn(c net.Conn) (err error) {
+func (p *Packet) readFromRDMAConn(conn *cbrdma.RDMAConn) (err error) {
+	offset := 0
+	if _, err = conn.Read(nil); err != nil {
+		return
+	}
+
+	buff, recvLen := conn.GetRecvBuff()
+	if recvLen < unit.PacketHeaderSize {
+		return fmt.Errorf("recv package error")
+	}
+
+	defer func() {
+		conn.ReleaseRecvBuffer(buff)
+	}()
+
+	if err = p.UnmarshalHeader(buff); err != nil {
+		return
+	}
+	offset += unit.PacketHeaderSize
+
+	if p.ArgLen > 0 {
+		p.Arg = make([]byte, int(p.ArgLen))
+		copy(p.Arg, buff[offset: offset + int(p.ArgLen)])
+	}
+	offset += int(p.ArgLen)
+
+	if p.Size < 0 {
+		return syscall.EBADMSG
+	}
+	size := p.Size
+	if (p.Opcode == OpRead || p.Opcode == OpStreamRead || p.Opcode == OpExtentRepairRead || p.Opcode == OpStreamFollowerRead) && p.ResultCode == OpInitResultCode {
+		size = 0
+	}
+	p.Data = make([]byte, size)
+	copy(p.Data, buff[offset:offset + int(size)])
+
+	return
+}
+
+func (p *Packet) readFromTCPConn(c net.Conn) (err error) {
 	header, err := Buffers.Get(unit.PacketHeaderSize)
 	if err != nil {
 		header = make([]byte, unit.PacketHeaderSize)
@@ -886,6 +925,15 @@ func (p *Packet) readFromConn(c net.Conn) (err error) {
 		return syscall.EBADMSG
 	}
 	return nil
+}
+
+func (p *Packet) readFromConn(c net.Conn) (err error) {
+	switch c.(type) {
+	case *cbrdma.RDMAConn:
+		return p.readFromRDMAConn(c.(*cbrdma.RDMAConn))
+	default:
+		return p.readFromTCPConn(c)
+	}
 }
 
 // PacketOkReply sets the result code as OpOk, and sets the body as empty.

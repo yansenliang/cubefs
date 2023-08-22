@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/cbnet/cbrdma"
 	"hash/crc32"
 	"io"
 	"math/rand"
@@ -256,7 +257,36 @@ func (p *Packet) IsValidReadReply(q *Packet) bool {
 	return false
 }
 
-func (p *Packet) ReadFromConn(c net.Conn, deadlineTimeNs int64) (err error) {
+func (p *Packet) ReadFromRDMAConn(conn *cbrdma.RDMAConn, deadlineTimeNs int64) (err error) {
+	offset := 0
+	if _, err = conn.Read(nil); err != nil {
+		return
+	}
+
+	buff, recvLen := conn.GetRecvBuff()
+	if recvLen < unit.PacketHeaderSize {
+		return fmt.Errorf("recv package err")
+	}
+
+	if err = p.UnmarshalHeader(buff); err != nil {
+		return
+	}
+	offset += unit.PacketHeaderSize
+
+	if p.ArgLen > 0 {
+		p.Arg = make([]byte, p.ArgLen)
+		copy(p.Arg, buff[offset : offset + int(p.ArgLen)] )
+	}
+	offset += int(p.ArgLen)
+	size := int(p.Size)
+	if size > len(p.Data) {
+		size = len(p.Data)
+	}
+	copy(p.Data[:size], buff[offset : offset + int(size)])
+	return nil
+}
+
+func (p *Packet) ReadFromTCPConn(c net.Conn, deadlineTimeNs int64) (err error) {
 	if deadlineTimeNs != proto.NoReadDeadlineTime {
 		c.SetReadDeadline(time.Now().Add(time.Duration(deadlineTimeNs) * time.Nanosecond))
 	}
@@ -286,6 +316,15 @@ func (p *Packet) ReadFromConn(c net.Conn, deadlineTimeNs int64) (err error) {
 
 	_, err = io.ReadFull(c, p.Data[:size])
 	return
+}
+
+func (p *Packet) ReadFromConn(c net.Conn, deadlineTimeNs int64) (err error) {
+	switch c.(type) {
+	case *cbrdma.RDMAConn:
+		return p.ReadFromRDMAConn(c.(*cbrdma.RDMAConn), deadlineTimeNs)
+	default:
+		return p.ReadFromTCPConn(c, deadlineTimeNs)
+	}
 }
 
 func (p *Packet) Copy() *Packet {
