@@ -368,12 +368,15 @@ func startDaemon(role string) error {
 	args = append(args, "-c")
 	args = append(args, configPath)
 
+	ldPathValue := os.Getenv("LD_LIBRARY_PATH")
+
 	env := []string{
 		fmt.Sprintf("PATH=%s", os.Getenv("PATH")),
 	}
 
 	if role == RoleMeta || role == RoleData {
 		env = append(env, "GODEBUG=cgocheck=0")
+		env = append(env, fmt.Sprintf("LD_LIBRARY_PATH=%s:%s", filepath.Dir(cmdPath), ldPathValue))
 	}
 
 	err = daemonize.Run(cmdPath, args, env, os.Stdout)
