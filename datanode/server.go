@@ -196,7 +196,7 @@ func doStart(server common.Server, cfg *config.Config) (err error) {
 	}
 
 	logH := log.GetLogFileHandler()
-	cbrdma.InitNetEnv(1, int(logH.GetLogLevel()), -1, s.localIP, logH)
+	cbrdma.InitNetEnv(1, 2, -1, s.localIP, logH)
 
 	rdmaInfo.InitRdmaLogHandler(logH)
 	if s.rdma, err = rdmaInfo.NewNetSysInfo(s.localIP, statPath); err != nil {
@@ -621,7 +621,7 @@ func (s *DataNode) startTCPService() (err error) {
 	s.rdmaServer.Init(AcceptCbFunc, onRecv, nil, onDisconnected, onClosed, unsafe.Pointer(s))
 	port, _ := strconv.Atoi(s.port)
 	port += 10000
-	if rdmaErr := s.rdmaServer.Listen("", port, 132 * unit.KB, 8, 0); rdmaErr != nil {
+	if rdmaErr := s.rdmaServer.Listen(s.localIP, port, 132 * unit.KB, 8, 0); rdmaErr != nil {
 		log.LogErrorf("rdma listen failed, err:%v", rdmaErr.Error())
 		s.rdmaServer = nil
 	}

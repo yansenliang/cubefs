@@ -67,7 +67,7 @@ func (m *MetaNode) startServer() (err error) {
 	m.rdmaServer.Init(AcceptCbFunc, onRecv, nil, onDisconnected, onClosed, unsafe.Pointer(m))
 	port, _ := strconv.Atoi(m.listen)
 	port += 10000
-	if rdmaErr := m.rdmaServer.Listen("", port, 8 * KB, 8, 0); rdmaErr != nil {
+	if rdmaErr := m.rdmaServer.Listen(m.localAddr, port, 8 * KB, 8, 0); rdmaErr != nil {
 		log.LogErrorf("rdma listen failed, err:%v", rdmaErr.Error())
 		m.rdmaServer = nil
 	}

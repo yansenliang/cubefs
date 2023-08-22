@@ -437,8 +437,9 @@ func InitNetEnv(workerNum, logLevel, numaNode int, localIp string, logHandler Ne
 	config.log_level = C.uint8_t(logLevel)
 	config.log_handler_func = C.log_handler_cb_t(C.LogCbFunc)
 	config.on_disconnected_func = C.on_disconnected_cb_t(C.NetOnDisconnectedCb)
-	//config.on_error_func = C.on_error_cb_t(C.NetOnDisconnectedCb)
+	config.on_error_func = C.on_error_cb_t(C.NetOnDisconnectedCb)
 	config.on_closed_func = C.on_closed_cb_t(C.NetOnClosedCb)
+	gLogHandler.Error("init net env(%d, %d, %d, %s, %p)", workerNum, logLevel, numaNode, localIp, logHandler)
 
 	for i := 0; i < len(localIp) && i < int(C.MAX_IP_LEN); i++ {
 		config.str_local_ip[i] = C.char(localIp[i])

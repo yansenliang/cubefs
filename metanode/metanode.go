@@ -168,7 +168,7 @@ func doStart(s common.Server, cfg *config.Config) (err error) {
 	}
 
 	logH := log.GetLogFileHandler()
-	cbrdma.InitNetEnv(1, int(logH.GetLogLevel()), -1, m.localAddr, logH)
+	cbrdma.InitNetEnv(1, 2, -1, m.localAddr, logH)
 
 	rdmaInfo.InitRdmaLogHandler(logH)
 	if m.rdma, err = rdmaInfo.NewNetSysInfo(m.localAddr, statPath); err != nil {
