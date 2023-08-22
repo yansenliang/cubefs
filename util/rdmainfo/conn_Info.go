@@ -73,58 +73,11 @@ func (c *ConnNode) CalcRdmaInfo(localConf *RDMAConfInfo) (rdmaEnable bool) {
         return
     }
 
-    //check bond
-    if c.PeerConf.IsBond != localConf.IsBond {
-        c.RdmaEnable = false
-        return
+    if c.PeerConf.IsRDMAConfSame(localConf) {
+        c.RdmaEnable = true
+        rdmaEnable = true
     }
 
-    //check fw version
-    if strings.Compare(c.PeerConf.FWVer, localConf.FWVer) != 0 ||
-        strings.Compare(localConf.FWVer, c.PeerConf.FWVer) != 0 {
-        c.RdmaEnable = false
-        return
-    }
-
-    //driver version
-    if strings.Compare(c.PeerConf.DriverVer, DriverVersion) != 0 ||
-        strings.Compare(DriverVersion, c.PeerConf.DriverVer) != 0 {
-        c.RdmaEnable = false
-        return
-    }
-
-    //vendor
-    if strings.Compare(c.PeerConf.Vendor[0], localConf.Vendor[0]) != 0 ||
-        strings.Compare(localConf.Vendor[0], c.PeerConf.Vendor[0]) != 0 ||
-        len(c.PeerConf.SlaveName) != len(localConf.SlaveName) {
-        c.RdmaEnable = false
-        return
-    }
-
-    //check ucx version
-    if strings.Compare(c.PeerConf.UcxLibVer, localConf.UcxLibVer) != 0 ||
-        strings.Compare(localConf.UcxLibVer, c.PeerConf.UcxLibVer) != 0 {
-        c.RdmaEnable = false
-        return
-    }
-
-    //check ucx commit
-    if strings.Compare(c.PeerConf.UcxCommit, localConf.UcxCommit) != 0 ||
-        strings.Compare(localConf.UcxCommit, c.PeerConf.UcxCommit) != 0 {
-        c.RdmaEnable = false
-        return
-    }
-
-    //check ucx build conf
-    if strings.Compare(c.PeerConf.UcxBuild, localConf.UcxBuild) != 0 ||
-        strings.Compare(localConf.UcxBuild, c.PeerConf.UcxBuild) != 0 {
-        c.RdmaEnable = false
-        return
-    }
-
-    //conf is same, rdma enable
-    c.RdmaEnable = true
-    rdmaEnable = true
     return
 }
 

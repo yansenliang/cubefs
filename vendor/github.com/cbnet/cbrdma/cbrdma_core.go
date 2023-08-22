@@ -138,7 +138,7 @@ func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memTy
 
 	conn.connType = CONN_TYPE_ACTIVE
 	atomic.StoreInt32(&conn.state, CONN_ST_CONNECTED)
-	conn.remoteAddr = RDMAAddr{addr: ip + strconv.Itoa(port)}
+	conn.remoteAddr = RDMAAddr{addr: ip + strconv.Itoa(port - 10000)}
 	gConnMap.Store(conn.connPtr, conn)
 	return nil
 }
@@ -214,11 +214,11 @@ func (conn *RDMAConn) ReleaseRecvBuffer(buff []byte) (err error) {
 }
 
 func (conn *RDMAConn) LocalAddr() net.Addr {
-	return nil
+	return &conn.localAddr
 }
 
 func (conn *RDMAConn) RemoteAddr() net.Addr {
-	return nil
+	return &conn.remoteAddr
 }
 
 func (conn *RDMAConn)  SetDeadline(t time.Time) error {

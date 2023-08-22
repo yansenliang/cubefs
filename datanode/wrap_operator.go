@@ -157,6 +157,8 @@ func (s *DataNode) OperatePacket(p *repl.Packet, c net.Conn) (err error) {
 		s.handleBroadcastMinAppliedID(p)
 	case proto.OpSyncDataPartitionReplicas:
 		s.handlePacketToSyncDataPartitionReplicas(p)
+	case proto.OpGetRdmaInfo:
+		s.handlePacketGetRdmaInfo(p)
 	default:
 		p.PackErrorBody(repl.ErrorUnknownOp.Error(), repl.ErrorUnknownOp.Error()+strconv.Itoa(int(p.Opcode)))
 	}
@@ -1909,4 +1911,19 @@ func (s *DataNode) checkLimit(pkg *repl.Packet) (err error) {
 
 func isStreamOp(op int) bool {
 	return op == proto.OpExtentRepairWrite_ || op == int(proto.OpStreamRead) || op == int(proto.OpStreamFollowerRead) || op == int(proto.OpTinyExtentRepairRead) || op == int(proto.OpExtentRepairRead)
+}
+func (s *DataNode) handlePacketGetRdmaInfo(p *repl.Packet) {
+	var err error
+	defer func() {
+		if err != nil {
+			p.PackErrorBody(ActionSyncDataPartitionReplicas, err.Error())
+		}
+	}()
+	bytes, err := json.Marshal(s.rdma)
+	if err != nil {
+		return
+	}
+	p.PacketOkWithBody(bytes)
+	return
+
 }

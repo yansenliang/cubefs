@@ -16,15 +16,24 @@ package connpool
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/cbnet/cbrdma"
+	"github.com/cubefs/cubefs/proto"
+	rdmaInfo "github.com/cubefs/cubefs/util/rdmainfo"
+	"github.com/cubefs/cubefs/util/unit"
 	"math/rand"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 )
 
 type Object struct {
 	conn *net.TCPConn
+	rdmaConn *cbrdma.RDMAConn
 	idle int64
 }
 
@@ -79,6 +88,7 @@ type ConnectPool struct {
 	closeCh         chan struct{}
 	closeOnce       sync.Once
 	wg              sync.WaitGroup
+	rdmaConf        *rdmaInfo.RDMAConfInfo
 }
 
 func NewConnectPool() (cp *ConnectPool) {
@@ -122,6 +132,7 @@ func NewConnectPoolWithTimeoutAndCap(min, max int, idleConnTimeout, connectTimeo
 	}
 	cp.wg.Add(1)
 	go cp.autoRelease()
+	go cp.rdmaSupportQuery()
 
 	return cp
 }
@@ -155,7 +166,31 @@ func (cp *ConnectPool) GetConnect(targetAddr string) (c *net.TCPConn, err error)
 	return pool.GetConnectFromPool(nil)
 }
 
-func (cp *ConnectPool) PutConnect(c *net.TCPConn, forceClose bool) {
+func (cp *ConnectPool) GetRDMAConnect(targetAddr string) (c *cbrdma.RDMAConn, err error) {
+	cp.RLock()
+	pool, ok := cp.pools[targetAddr]
+	cp.RUnlock()
+	if !ok {
+		cp.Lock()
+		pool, ok = cp.pools[targetAddr]
+		if !ok {
+			pool = NewPool(nil, cp.mincap, cp.maxcap, cp.idleConnTimeout, cp.connectTimeout, targetAddr)
+			cp.pools[targetAddr] = pool
+		}
+		cp.Unlock()
+		return nil, fmt.Errorf("->%s can not support rdma", targetAddr)
+	}
+
+	pool.lock.Lock()
+	defer pool.lock.Unlock()
+	if pool.supportRDMA < 1 {
+		return nil, fmt.Errorf("->%s can not support rdma", targetAddr)
+	}
+
+	return pool.GetRDMAConnectFromPool(nil)
+}
+
+func (cp *ConnectPool) PutConnect(c net.Conn, forceClose bool) {
 	if c == nil {
 		return
 	}
@@ -177,13 +212,20 @@ func (cp *ConnectPool) PutConnect(c *net.TCPConn, forceClose bool) {
 		c.Close()
 		return
 	}
-	object := &Object{conn: c, idle: time.Now().UnixNano()}
+	object := &Object{idle: time.Now().UnixNano()}
+	switch c.(type) {
+	case *cbrdma.RDMAConn:
+		object.rdmaConn = c.(*cbrdma.RDMAConn)
+	default:
+		object.conn = c.(*net.TCPConn)
+	}
+
 	pool.PutConnectObjectToPool(object)
 
 	return
 }
 
-func (cp *ConnectPool) PutConnectWithErr(c *net.TCPConn, err error) {
+func (cp *ConnectPool) PutConnectWithErr(c net.Conn, err error) {
 	cp.PutConnect(c, err != nil)
 	remoteAddr := "connect is nil"
 	if c != nil {
@@ -217,6 +259,29 @@ func (cp *ConnectPool) ClearConnectPool(addr string) {
 		return
 	}
 	pool.ReleaseAll()
+}
+
+func (cp *ConnectPool) rdmaSupportQuery() {
+	defer cp.wg.Done()
+	var timer = time.NewTimer(time.Minute * 5)
+	for {
+		select {
+		case <-cp.closeCh:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		pools := make([]*Pool, 0)
+		cp.RLock()
+		for _, pool := range cp.pools {
+			pools = append(pools, pool)
+		}
+		cp.RUnlock()
+		for _, pool := range pools {
+			pool.rdmaSupportQuery(cp.rdmaConf)
+		}
+		timer.Reset(time.Minute * 5)
+	}
 }
 
 func (cp *ConnectPool) autoRelease() {
@@ -266,6 +331,8 @@ func (cp *ConnectPool) Close() {
 type Pool struct {
 	lock            sync.RWMutex
 	objects         chan *Object
+	rdmaObjects     chan *Object
+	supportRDMA     int8				//-1 no support; 0 unknown, wait query; 1 support
 	mincap          int
 	maxcap          int
 	target          string
@@ -279,6 +346,7 @@ func NewPool(ctx context.Context, min, max int, idleConnTimeout, connectTimeout 
 	p.maxcap = max
 	p.target = target
 	p.objects = make(chan *Object, max)
+	p.rdmaObjects = make(chan *Object, max)
 	p.idleConnTimeout = idleConnTimeout
 	p.connectTimeout = connectTimeout
 	p.initAllConnect(ctx)
@@ -300,19 +368,71 @@ func (p *Pool) initAllConnect(ctx context.Context) {
 }
 
 func (p *Pool) PutConnectObjectToPool(o *Object) {
+	objectsChan := p.objects
+	if o.rdmaConn != nil {
+		objectsChan = p.rdmaObjects
+	}
 	select {
-	case p.objects <- o:
+	case objectsChan <- o:
 		return
 	default:
 		if o.conn != nil {
 			o.conn.Close()
 		}
+
+		if o.rdmaConn != nil {
+			o.rdmaConn.Close()
+		}
 		return
 	}
 }
 
-func (p *Pool) autoRelease() {
-	connectLen := len(p.objects)
+func (p *Pool) rdmaSupportQuery(info *rdmaInfo.RDMAConfInfo) {
+	var err error
+	isSupport := int8(-1)
+
+	if info == nil {
+		return
+	}
+
+	defer func() {
+		p.lock.Lock()
+		p.supportRDMA = isSupport
+		p.lock.Unlock()
+	}()
+
+	conn, err := p.GetConnectFromPool(context.Background())
+	if err != nil {
+		return
+	}
+
+	req := proto.NewPacket(context.Background())
+	req.Opcode = proto.OpGetRdmaInfo
+	if err = req.WriteToConn(conn, 1); err != nil {
+		return
+	}
+	resp := req
+	if err = resp.ReadFromConn(conn, 1); err != nil {
+		return
+	}
+	if resp.ResultCode != proto.OpOk {
+		return
+	}
+
+	peerInfo := &rdmaInfo.RDMASysInfo{}
+	if err = json.Unmarshal(resp.Data, peerInfo); err != nil {
+		return
+	}
+
+	if peerInfo.Conf.IsRDMAConfSame(info) {
+		isSupport = 1
+	}
+
+	return
+}
+
+func (p *Pool) autoReleaseConnChan(objects chan *Object) {
+	connectLen := len(objects)
 	for i := 0; i < connectLen; i++ {
 		select {
 		case o := <-p.objects:
@@ -327,16 +447,26 @@ func (p *Pool) autoRelease() {
 	}
 }
 
-func (p *Pool) ReleaseAll() {
-	connectLen := len(p.objects)
+func (p *Pool) autoRelease() {
+	p.autoReleaseConnChan(p.objects)
+	p.autoReleaseConnChan(p.rdmaObjects)
+}
+
+func (p *Pool) ReleaseConnChan(objects chan *Object) {
+	connectLen := len(objects)
 	for i := 0; i < connectLen; i++ {
 		select {
-		case o := <-p.objects:
+		case o := <-objects:
 			o.conn.Close()
 		default:
 			return
 		}
 	}
+}
+
+func (p *Pool) ReleaseAll() {
+	p.ReleaseConnChan(p.objects)
+	p.ReleaseConnChan(p.rdmaObjects)
 }
 
 func (p *Pool) NewConnect(ctx context.Context, target string) (c *net.TCPConn, err error) {
@@ -347,6 +477,18 @@ func (p *Pool) NewConnect(ctx context.Context, target string) (c *net.TCPConn, e
 		conn.SetKeepAlive(true)
 		conn.SetNoDelay(true)
 		c = conn
+	}
+	return
+}
+
+func (p *Pool) NewRDMAConnect(ctx context.Context, target string) (c *cbrdma.RDMAConn, err error) {
+	connect := &cbrdma.RDMAConn{}
+	connect.Init(nil, nil, nil, nil, unsafe.Pointer(p))
+	addr := strings.Split(p.target, ":")[0]
+	port, _ := strconv.Atoi(strings.Split(p.target, ":")[1])
+	 err = connect.Dial(addr, port + 10000, 132 * unit.KB, 8, 0)
+	if err == nil {
+		c = connect
 	}
 	return
 }
@@ -362,10 +504,48 @@ func (p *Pool) GetConnectFromPool(ctx context.Context) (c *net.TCPConn, err erro
 			return p.NewConnect(ctx, p.target)
 		}
 		if time.Now().UnixNano()-int64(o.idle) > int64(p.idleConnTimeout) {
-			_ = o.conn.Close()
+			if o.conn != nil {
+				_ = o.conn.Close()
+			}
+
+			if o.rdmaConn != nil {
+				o.rdmaConn.Close()
+			}
 			o = nil
 			continue
 		}
-		return o.conn, nil
+
+		if o.conn == nil {
+			return p.NewConnect(ctx, p.target)
+		}
+		return o.conn, err
+	}
+}
+
+func (p *Pool) GetRDMAConnectFromPool(ctx context.Context) (c *cbrdma.RDMAConn, err error) {
+	var (
+		o *Object
+	)
+	for {
+		select {
+		case o = <-p.rdmaObjects:
+		default:
+			return p.NewRDMAConnect(ctx, p.target)
+		}
+		if time.Now().UnixNano()-int64(o.idle) > int64(p.idleConnTimeout) {
+			if o.conn != nil {
+				_ = o.conn.Close()
+			}
+
+			if o.rdmaConn != nil {
+				o.rdmaConn.Close()
+			}
+			o = nil
+			continue
+		}
+		if o.rdmaConn == nil {
+			return p.NewRDMAConnect(ctx, p.target)
+		}
+		return o.rdmaConn, nil
 	}
 }

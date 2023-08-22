@@ -325,6 +325,8 @@ func (m *metadataManager) HandleMetadataOperation(conn net.Conn, p *Packet, remo
 		err = m.opStatDeletedFileInfo(conn, p, remoteAddr)
 	case proto.OpMetaGetExtentsNoModifyAccessTime:
 		err = m.opGetExtentsNoModifyAccessTime(conn, p, remoteAddr)
+	case proto.OpGetRdmaInfo:
+		err = m.opGetRdmaInfo(conn, p, remoteAddr)
 	default:
 		err = fmt.Errorf("%s unknown Opcode: %d, reqId: %d", remoteAddr,
 			p.Opcode, p.GetReqID())
@@ -1238,4 +1240,18 @@ func (v MetaNodeVersion) LessThan(versionB *MetaNodeVersion) bool {
 
 func (v MetaNodeVersion) VersionStr() string {
 	return fmt.Sprintf("%v.%v.%v", v.Major, v.Minor, v.Patch)
+}
+
+func (m *metadataManager) opGetRdmaInfo(conn net.Conn, p *Packet, remoteAddr string) (err error) {
+	defer func() {
+		m.respondToClient(conn, p)
+	}()
+	var buff []byte
+	buff, err = json.Marshal(m.metaNode.rdma)
+	if err != nil {
+		p.PacketErrorWithBody(proto.OpErr, ([]byte)(err.Error()))
+		return
+	}
+	p.PacketOkWithBody(buff)
+	return
 }

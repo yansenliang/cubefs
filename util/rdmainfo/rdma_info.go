@@ -75,6 +75,34 @@ func defErrCb(context interface{}, errDes string) {
 	errorF("error occur:%s", errDes)
 }
 
+func (rdmaConf *RDMAConfInfo) IsRDMAConfSame(peerConf *RDMAConfInfo) (isSame bool) {
+	if peerConf.IsBond != rdmaConf.IsBond {
+		return
+	}
+
+	//check fw version
+	if strings.Compare(peerConf.FWVer, rdmaConf.FWVer) != 0 ||
+		strings.Compare(peerConf.FWVer, rdmaConf.FWVer) != 0 {
+		return
+	}
+
+	//driver version
+	if strings.Compare(peerConf.DriverVer, DriverVersion) != 0 ||
+		strings.Compare(rdmaConf.DriverVer, DriverVersion) != 0 {
+		return
+	}
+
+	//vendor
+	if strings.Compare(peerConf.Vendor[0], rdmaConf.Vendor[0]) != 0 ||
+		len(peerConf.SlaveName) != len(rdmaConf.SlaveName) {
+		return
+	}
+
+	//conf is same, rdma enable
+	isSame = true
+	return
+}
+
 func (info *RDMASysInfo) getNetDevName() error {
 	nets, err := net.Interfaces()
 	if err != nil {
