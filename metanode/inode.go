@@ -177,7 +177,7 @@ func (i *Inode) getTailVerInList() (verSeq uint64, found bool) {
 func (inode *Inode) GetAllExtsOfflineInode(mpID uint64) (extInfo map[uint64][]*proto.ExtentKey) {
 
 	log.LogDebugf("deleteMarkedInodes. GetAllExtsOfflineInode.mp %v inode [%v] inode.Extents %v, ino verlist %v",
-		mpID, inode.Inode, inode.Extents, inode.multiSnap.multiVersions)
+		mpID, inode.Inode, inode.Extents, inode.multiSnap)
 	extInfo = make(map[uint64][]*proto.ExtentKey)
 
 	if inode.getLayerLen() > 0 {
