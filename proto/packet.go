@@ -796,16 +796,30 @@ func (p *Packet) writeToTCPConn(c net.Conn) (err error) {
 
 func (p *Packet) writeToRDMAConn(conn *cbrdma.RDMAConn) (err error) {
 	var buff []byte
-	if buff, err = conn.GetSendBuf(int(unit.PacketHeaderSize + p.Size), int( (time.Second * 2).Microseconds() )); err != nil {
+	realReqSize := int(unit.PacketHeaderSize + p.ArgLen)
+	offset := 0
+	if p.Data != nil && p.Size != 0 {
+		realReqSize += int(p.Size)
+	}
+
+	if buff, err = conn.GetSendBuf(realReqSize, int( (time.Second * 2).Microseconds() )); err != nil {
 		return
 	}
 
-	if len(buff) < int(p.Size + unit.PacketHeaderSize) {
+	if len(buff) < realReqSize {
 		return fmt.Errorf("conn(%d-%p) get send buff failed", conn.GetNd(), conn)
 	}
 
 	p.MarshalHeader(buff)
-	copy(buff[unit.PacketHeaderSize:], p.Data)
+	offset += unit.PacketHeaderSize
+	if p.ArgLen != 0 {
+		copy(buff[offset:], p.Arg)
+		offset += int(p.ArgLen)
+	}
+
+	if p.Data != nil && p.Size != 0 {
+		copy(buff[offset:], p.Data)
+	}
 	if _, err = conn.Write(buff); err != nil {
 		return
 	}

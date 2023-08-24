@@ -21,6 +21,8 @@ MACRO=-DCBRDMA_WITH_DEBUG
 .PRECIOUS: %.o
 
 all: libcbrdma.so
+    mkdir -p ../../../../build/bin/
+    cp libcbrdma.so ../../../../build/bin/
 
 libcbrdma.so: $(C_OBJS) $(STATS_OBJS)
 	$(CC) -shared $(CFLAGS) $(MACRO) $^ -o $@ $(INCLUDE) $(LIB) $(LINK_SO)

@@ -251,11 +251,13 @@ func (conn *RDMAConn) Close() error {
 	}
 
 	conn.mu.Lock()
-	for elem := conn.recvMsgList.Front(); elem != nil; elem = elem.Next() {
-		msg := elem.Value.(*RecvMsg)
-		C.cbrdma_release_recv_buff(conn.connPtr, unsafe.Pointer(&msg.dataPatr[0]))
+	if conn.recvMsgList != nil {
+		for elem := conn.recvMsgList.Front(); elem != nil; elem = elem.Next() {
+			msg := elem.Value.(*RecvMsg)
+			C.cbrdma_release_recv_buff(conn.connPtr, unsafe.Pointer(&msg.dataPatr[0]))
+		}
+		conn.recvMsgList.Init()
 	}
-	conn.recvMsgList.Init()
 	conn.mu.Unlock()
 
 	C.cbrdma_close(conn.connPtr)
