@@ -32,6 +32,14 @@
         LOG(INFO, "conn[%d] state: %s-->%s", conn->nd, conn_state_names[old], conn_state_names[t]);\
     }while(0)
 
+#define conn_add_ref(conn) do {\
+        pthread_spin_lock(&conn->spin_lock);    \
+        if (conn->ref > 0) {                    \
+            conn->ref++;                        \
+        };                                      \
+        pthread_spin_unlock(&conn->spin_lock);    \
+    }while(0)
+
 #define conn_del_ref(conn) do {\
         pthread_spin_lock(&conn->spin_lock);    \
         if (conn->ref > 0) {                    \
@@ -45,7 +53,7 @@ typedef enum conn_state_enum_t {
     CONN_ST_INIT,
     CONN_ST_CONNECTING, //执行rdma连接建立，元数据交换
     CONN_ST_CONNECTED,  //元数据交换完成
-    CONN_ST_EXCHANGE,   //主动改变发送buffer大小，元数据交换
+    CONN_ST_ERROR,      //主动改变发送buffer大小，元数据交换
     CONN_ST_CLOSING,    //连接已建立，开始执行关闭
     CONN_ST_DISCONNECTED, //连接已彻底断开
     CONN_ST_CLOSED,       //连接资源已释放完毕
@@ -265,11 +273,7 @@ typedef struct conn_context_t {
     int64_t       close_start;
 } connect_t;
 
-extern log_handler_cb_t   g_log_handler;
-extern on_disconnected_cb_t    g_disconnected_handler;
-extern on_error_cb_t    g_error_handler;
-extern on_closed_cb_t    g_closed_handler;
-extern net_env_t        *g_net_env;
+void (*log_handler_cb) (int level, char* line, int len);
 
 #define LOG(level, fmt, ...)  deal_log(level, __FUNCTION__, __LINE__, fmt,  ##__VA_ARGS__)
 
@@ -285,35 +289,31 @@ extern net_env_t        *g_net_env;
 
 int64_t get_time_ns();
 void deal_log(int level, const char* func, int line, const char* fmt, ...);
+int get_rdma_dev_name_by_ip(char* local_ip, char rdma_name[], int len);
 
 uint64_t allocate_nd(int type);
 worker_t*  get_worker_by_nd(uint64_t nd);
-
 int add_conn_to_worker(connect_t * conn, worker_t * worker, khash_t(map) *hmap);
 int del_conn_from_worker(uint64_t nd, worker_t * worker, khash_t(map) *hmap);
 void get_worker_and_connect_by_nd(uint64_t nd, worker_t ** worker, connect_t** conn, int8_t with_ref);
-void _get_worker_and_connect_by_nd(uint64_t nd, worker_t** worker, connect_t** conn);
+void _get_worker_and_connect_by_nd(uint64_t nd, worker_t** worker, connect_t** conn, int8_t with_ref);
 
-void (*log_handler_cb) (int level, char* line, int len);
-
-int get_rdma_dev_name_by_ip(char* local_ip, char rdma_name[], int len);
+void conn_notify_disconnect(connect_t *conn);
+void conn_notify_error(connect_t *conn);
+void conn_notify_closed(connect_t *conn);
 
 int reg_meta_data(connect_t *conn, buffer_t* meta_ptr);
-
-void client_build_reg_recv_buff_cmd(connect_t* conn);
-
-int post_recv_meta(connect_t *conn);
-int post_send_meta(connect_t *conn);
-int post_send_data(connect_t *conn, buffer_t *buff, uint32_t len);
-
-int conn_close(worker_t* worker, connect_t* conn);
-
 int conn_reg_data_buff(connect_t *conn, uint32_t blcok_size, uint32_t block_cnt, int mem_type, buffer_t * buff);
 int conn_bind_remote_recv_key(connect_t *conn, meta_t* rmeta);
-
 void release_rdma(connect_t * conn);
 void release_buffer(connect_t * conn);
 
+int conn_close(worker_t* worker, connect_t* conn);
 int disconnect(uint64_t nd);
+
+void client_build_reg_recv_buff_cmd(connect_t* conn);
+int post_recv_meta(connect_t *conn);
+int post_send_meta(connect_t *conn);
+int post_send_data(connect_t *conn, buffer_t *buff, uint32_t len);
 
 #endif

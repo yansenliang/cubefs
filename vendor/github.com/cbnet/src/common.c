@@ -22,7 +22,7 @@ on_closed_cb_t    g_closed_handler;
 net_env_t        *g_net_env;
 
 
-const char * conn_state_names[CONN_ST_MAX] = {"CONN_ST_INIT", "CONN_ST_CONNECTING", "CONN_ST_CONNECTED", "CONN_ST_EXCHANGE",
+const char * conn_state_names[CONN_ST_MAX] = {"CONN_ST_INIT", "CONN_ST_CONNECTING", "CONN_ST_CONNECTED", "CONN_ST_ERROR",
     "CONN_ST_CLOSING", "CONN_ST_DISCONNECTED", "CONN_ST_CLOSED"};
 
 int64_t get_time_ns() {
@@ -39,76 +39,17 @@ void deal_log(int level, const char* func, int line, const char* fmt, ...) {
         return;
     }
 
-    snprintf(buf, LOG_LINE_MAX_LEN, "[%lu] [%s:%d] ", pthread_self(), func, line);
+    snprintf(buf, LOG_LINE_MAX_LEN, "[libcbrdma.so] [%lu] [%s:%d] ", pthread_self(), func, line);
     va_start(args, fmt);
     vsprintf(buf + strlen(buf) , fmt, args);
     va_end(args);
     if (g_log_handler) {
-        g_log_handler(level, buf, strlen(buf));
+        g_log_handler(ERROR, buf, strlen(buf));
     }
     return;
 }
 
-uint64_t allocate_nd(int type) {
-    int id_index = ID_GEN_CTRL;
-    union conn_nd_union id;
-
-    id_index += 1;
-    id.nd_.worker_id = __sync_fetch_and_add((g_net_env->id_gen + id_index), 1) & 0xFF;
-    id.nd_.type = type & 0xFF;
-    id.nd_.m1 = 'c';
-    id.nd_.m2 = 'b';
-
-    id.nd_.id = __sync_fetch_and_add((g_net_env->id_gen + ID_GEN_MAX - 1), 1);
-    return id.nd;
-}
-
-worker_t* get_worker_by_nd(uint64_t nd) {
-    int worker_id = ((nd) >>CONN_ID_BIT_LEN) % g_net_env->worker_num;
-    return g_net_env->worker + worker_id;
-}
-
-int add_conn_to_worker(connect_t * conn, worker_t * worker, khash_t(map) *hmap) {
-    int ret = 0;
-    pthread_spin_lock(&worker->nd_map_lock);
-    ret = hashmap_put(hmap, conn->nd, (uint64_t)conn);
-    if (hmap == worker->nd_map)
-        worker->qp_cnt++;
-    pthread_spin_unlock(&worker->nd_map_lock);
-    return ret >= 0;
-}
-
-int del_conn_from_worker(uint64_t nd, worker_t * worker, khash_t(map) *hmap) {
-    int ret = 0;
-    pthread_spin_lock(&worker->nd_map_lock);
-    ret = hashmap_del(hmap, nd);
-    if (hmap == worker->closing_nd_map)
-        worker->qp_cnt--;
-    pthread_spin_unlock(&worker->nd_map_lock);
-    return ret >= 0;
-}
-
-void get_worker_and_connect_by_nd(uint64_t nd, worker_t ** worker, connect_t** conn, int8_t with_ref) {
-    *worker = get_worker_by_nd(nd);
-    pthread_spin_lock(&(*worker)->nd_map_lock);
-    *conn = (connect_t *)hashmap_get((*worker)->nd_map, nd);
-    if (*conn != NULL && with_ref) {
-        pthread_spin_lock(&(*conn)->spin_lock);
-        (*conn)->ref++;
-        pthread_spin_unlock(&(*conn)->spin_lock);
-    }
-    pthread_spin_unlock(&(*worker)->nd_map_lock);
-}
-
-void _get_worker_and_connect_by_nd(uint64_t nd, worker_t** worker, connect_t** conn) {
-    *worker = get_worker_by_nd(nd);
-    pthread_spin_lock(&(*worker)->nd_map_lock);
-    *conn = (connect_t *)hashmap_get((*worker)->nd_map, nd);
-    if (*conn == NULL) {
-        *conn = (connect_t *)hashmap_get((*worker)->closing_nd_map, nd);
-    }
-    pthread_spin_unlock(&(*worker)->nd_map_lock);
-}
+const char *cbrdma_net_status_string(int16_t status) { return NULL; }
 
 static int get_eth_dev_name_by_ip(char* local_ip, char dev_name[], int len) {
     struct ifaddrs *ifaddr;
@@ -183,6 +124,148 @@ int get_rdma_dev_name_by_ip(char* local_ip, char rdma_name[], int len) {
     return ret;
 }
 
+uint64_t allocate_nd(int type) {
+    int id_index = ID_GEN_CTRL;
+    union conn_nd_union id;
+
+    id_index += 1;
+    id.nd_.worker_id = __sync_fetch_and_add((g_net_env->id_gen + id_index), 1) & 0xFF;
+    id.nd_.type = type & 0xFF;
+    id.nd_.m1 = 'c';
+    id.nd_.m2 = 'b';
+
+    id.nd_.id = __sync_fetch_and_add((g_net_env->id_gen + ID_GEN_MAX - 1), 1);
+    return id.nd;
+}
+
+//export to lib
+void cbrdma_parse_nd(uint64_t nd, int *id, int * worker_id, int * is_server, int * is_active) {
+    *id = (nd & 0xFFFFFFFF);
+    *worker_id = ((nd >> 32) & 0xFF);
+    uint8_t type  = (((nd >> 32) & 0xFF00) >> 8);
+    *is_server = type & 0x80;
+    *is_active = type & 0x40;
+}
+
+worker_t* get_worker_by_nd(uint64_t nd) {
+    int worker_id = ((nd) >>CONN_ID_BIT_LEN) % g_net_env->worker_num;
+    return g_net_env->worker + worker_id;
+}
+
+int add_conn_to_worker(connect_t * conn, worker_t * worker, khash_t(map) *hmap) {
+    int ret = 0;
+    pthread_spin_lock(&worker->nd_map_lock);
+    ret = hashmap_put(hmap, conn->nd, (uint64_t)conn);
+    if (hmap == worker->nd_map)
+        worker->qp_cnt++;
+    pthread_spin_unlock(&worker->nd_map_lock);
+    return ret >= 0;
+}
+
+int del_conn_from_worker(uint64_t nd, worker_t * worker, khash_t(map) *hmap) {
+    int ret = 0;
+    pthread_spin_lock(&worker->nd_map_lock);
+    ret = hashmap_del(hmap, nd);
+    if (hmap == worker->closing_nd_map)
+        worker->qp_cnt--;
+    pthread_spin_unlock(&worker->nd_map_lock);
+    return ret >= 0;
+}
+
+void get_worker_and_connect_by_nd(uint64_t nd, worker_t ** worker, connect_t** conn, int8_t with_ref) {
+    *worker = get_worker_by_nd(nd);
+    pthread_spin_lock(&(*worker)->nd_map_lock);
+    *conn = (connect_t *)hashmap_get((*worker)->nd_map, nd);
+    if (*conn != NULL && with_ref) {
+        pthread_spin_lock(&(*conn)->spin_lock);
+        (*conn)->ref++;
+        pthread_spin_unlock(&(*conn)->spin_lock);
+    }
+    pthread_spin_unlock(&(*worker)->nd_map_lock);
+}
+
+void _get_worker_and_connect_by_nd(uint64_t nd, worker_t** worker, connect_t** conn, int8_t with_ref) {
+    *worker = get_worker_by_nd(nd);
+    pthread_spin_lock(&(*worker)->nd_map_lock);
+    *conn = (connect_t *)hashmap_get((*worker)->nd_map, nd);
+    if (*conn == NULL) {
+        *conn = (connect_t *)hashmap_get((*worker)->closing_nd_map, nd);
+    }
+    if (*conn != NULL && with_ref) {
+        pthread_spin_lock(&(*conn)->spin_lock);
+        if ((*conn)->state == CONN_ST_CLOSED) {
+            pthread_spin_unlock(&(*conn)->spin_lock);
+            pthread_spin_unlock(&(*worker)->nd_map_lock);
+            *conn = NULL;
+            return;
+        }
+
+        (*conn)->ref++;
+        pthread_spin_unlock(&(*conn)->spin_lock);
+    }
+    pthread_spin_unlock(&(*worker)->nd_map_lock);
+}
+
+static inline void conn_close_efd_with_lock(connect_t *conn) {
+    if (conn == NULL) {
+        return;
+    }
+
+    pthread_spin_lock(&conn->spin_lock);
+    if (conn->efd > 0) {
+        close(conn->efd);
+        conn->efd = -1;
+    }
+
+    if (conn->state == CONN_ST_CONNECTED) {
+        set_conn_state(conn, CONN_ST_ERROR);
+    }
+
+    pthread_spin_unlock(&conn->spin_lock);
+    return;
+}
+
+void conn_notify_disconnect(connect_t *conn) {
+    if (conn == NULL) {
+        return;
+    }
+    LOG(INFO, "conn(%lu-%p) notify disconnect", conn->nd, conn);
+    conn_close_efd_with_lock(conn);
+    if (g_disconnected_handler != NULL) {
+        g_disconnected_handler(conn->nd, conn->context);
+    }
+}
+
+void conn_notify_error(connect_t *conn) {
+    if (conn == NULL) {
+        return;
+    }
+    LOG(INFO, "conn(%lu-%p) notify error", conn->nd, conn);
+    conn_close_efd_with_lock(conn);
+    if (g_error_handler != NULL) {
+        g_error_handler(conn->nd, conn->context);
+    }
+}
+
+void conn_notify_closed(connect_t *conn) {
+    if (conn == NULL) {
+        return;
+    }
+    LOG(INFO, "conn(%lu-%p) notify disconnect", conn->nd, conn);
+    conn_close_efd_with_lock(conn);
+    if (g_closed_handler != NULL) {
+        g_closed_handler(conn->nd, conn->context);
+    }
+}
+
+static inline void init_buff(buffer_t* buff, connect_t* conn, int index, int type) {
+    buff->context = (void*) conn;
+    buff->index = index;
+    list_head_init(&buff->node);
+    buff->type = type;
+    return;
+}
+
 int reg_meta_data(connect_t *conn, buffer_t* meta) {
     meta->data = malloc(sizeof(meta_t));
     if (meta == NULL) {
@@ -199,6 +282,187 @@ int reg_meta_data(connect_t *conn, buffer_t* meta) {
     }
     LOG(INFO, "ibv_reg_mr meta malloc:%p, size:%d", meta->data, sizeof(meta_t));
     return 0;
+}
+
+int conn_reg_data_buff(connect_t * conn, uint32_t block_size, uint32_t block_cnt, int mem_type, buffer_t * buff_array) {
+    void* data_buff    = NULL;
+    worker_t *worker   = conn->worker;
+
+    data_buff = malloc(block_size * block_cnt);
+    if (data_buff == NULL) {
+        LOG(ERROR, "conn(%lu-%p) malloc recv data failed, errno:%d", conn->nd, conn, errno);
+        return -1;
+    }
+
+    for (int i = 0; i < block_cnt; i++) {
+        buffer_t *buff = buff_array + i;
+        init_buff(buff, conn, i, 0);
+        buff->data = data_buff + (i * block_size);
+
+        buff->mr = ibv_reg_mr(worker->pd, buff->data, block_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+        if (buff->mr == NULL) {
+            LOG(ERROR, "conn(%lu-%p) reg recv buff failed, errno:%d", conn->nd, conn, errno);
+            goto failed;
+        }
+
+        LOG(INFO, "conn(%lu-%p) buff:%p ibv_reg_mr mr: %p, data:%p", conn->nd, conn, buff, buff->mr, buff->data);
+    }
+
+    return 0;
+
+failed:
+    for (int i = 0; i < block_cnt; i++) {
+        buffer_t *buff = buff_array + i;
+        if (buff->mr != NULL)
+            ibv_dereg_mr(buff->mr);
+        buff->mr = NULL;
+    }
+    free(data_buff);
+    return -1;
+}
+
+int conn_bind_remote_recv_key(connect_t *conn, meta_t* rmeta) {
+    assert(conn != NULL);
+    assert(rmeta != NULL);
+    assert(conn->send_buff != NULL);
+
+    for (int i = 0; i < rmeta->count; i++) {
+        buffer_t *buff = conn->send_buff + i;
+        buff->peer_rkey = rmeta->rkey[i];
+        buff->peer_addr = rmeta->addr[i];
+        list_add_tail(&conn->send_free_list, &buff->node);
+        conn->send_win_size++;
+    }
+
+    return 0;
+}
+
+int dereg_buffer(connect_t * conn, buffer_t *buff_arr, int len) {
+    int ret = 0;
+    for (int i = 0; i < len; i++) {
+        buffer_t *buff = buff_arr + i;
+        if (buff->state == BUFF_ST_APP_INUSE) {
+            LOG(INFO, "conn(%lu-%p) buff:%p mr:%p wait app free", conn->nd, conn, buff, buff->mr);
+            ret = -1;
+            break;
+        }
+
+        if (buff->mr != NULL) {
+            ret = ibv_dereg_mr(buff->mr);
+            if (ret == 0) {
+                buff->mr = NULL;
+            }
+            LOG(INFO, "conn(%lu-%p) buff:%p mr:%p ibv_dereg_mr return: %d, errno:%d", conn->nd, conn, buff, buff->mr, ret, errno);
+            break;
+        }
+    }
+    
+    return ret;
+}
+
+void dereg_all_buffer(connect_t * conn) {
+    if (dereg_buffer(conn, conn->send_meta, 1) == 0
+        && dereg_buffer(conn, conn->recv_meta, 1) == 0
+        && dereg_buffer(conn, conn->send_buff, conn->send_block_cnt) == 0
+        && dereg_buffer(conn, conn->recv_buff, conn->recv_block_cnt) == 0) {
+        conn->buff_ref = 0;
+    }
+}
+
+void release_rdma(connect_t * conn) {
+    if (conn->qp != NULL && conn->id != NULL) {
+        rdma_destroy_qp(conn->id);
+        LOG(INFO, "conn(%lu-%p) rdma_destroy_qp:%p", conn->nd, conn, conn->id);
+    }
+
+    if (conn->id != NULL) {
+        rdma_destroy_id(conn->id);
+        LOG(INFO, "conn(%lu-%p) rdma_destroy_id:%p", conn->nd, conn, conn->id);
+    }
+
+    conn->id = NULL;
+    conn->qp = NULL;
+
+    dereg_all_buffer(conn);
+}
+
+int free_buffer(buffer_t *buff) {
+    if (buff == NULL) {
+        return 0;
+    }
+
+    if (buff->data != NULL)
+        free(buff->data);
+
+    buff->mr   = NULL;
+    buff->data = NULL;
+    free(buff);
+    return 0;
+}
+
+void release_buffer(connect_t * conn) {
+    free_buffer(conn->send_meta);
+    conn->send_meta = NULL;
+    LOG(INFO, "free send_meta:%p", conn);
+
+    free_buffer(conn->recv_meta);
+    conn->recv_meta = NULL;
+    LOG(INFO, "free recv_meta:%p", conn);
+
+    free_buffer(conn->send_buff);
+    conn->send_buff = NULL;
+    LOG(INFO, "free send_buff:%p", conn);
+
+    free_buffer(conn->recv_buff);
+    conn->recv_buff = NULL;
+    LOG(INFO, "free recv_buff:%p", conn);
+}
+
+int conn_close(worker_t* worker, connect_t* conn) {
+    int ret = 0;
+    uint64_t notify_value = 1;
+    pthread_spin_lock(&conn->spin_lock);
+
+     if (conn->efd > 0) {
+        write(conn->efd, &notify_value, 8);
+        close(conn->efd);
+        conn->efd = -1;
+    }
+
+    conn->is_app_closed = 1;
+    if (conn->state != CONN_ST_CLOSED && conn->state != CONN_ST_DISCONNECTED) {
+        if (conn->state != CONN_ST_CLOSING && conn->id != NULL) {
+            ret = rdma_disconnect(conn->id);
+        }
+        set_conn_state(conn, CONN_ST_CLOSING);
+    }
+
+    if (conn->close_start == 0) {
+        conn->close_start = get_time_ns();
+    }
+    LOG(INFO, "conn(%lu-%p) rdma_disconnect:%p", conn->nd, conn, conn->id);
+
+    pthread_spin_unlock(&conn->spin_lock);
+
+    del_conn_from_worker(conn->nd, worker, worker->nd_map);
+    add_conn_to_worker(conn, worker, worker->closing_nd_map);
+
+    return ret;
+}
+
+//触发rdma_disconnect，放入等待队列
+int disconnect(uint64_t nd) {
+    LOG(INFO, "disconnect:%lu", nd);
+    worker_t * worker = NULL;//get_worker_by_nd(nd);
+    connect_t * conn  = NULL;//get_connect_by_nd(nd);
+    int ret = 0;
+
+    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL) return 0;
+    conn->is_app_closed = 1;
+    ret = conn_close(worker, conn);
+    conn_del_ref(conn);
+    return ret;
 }
 
 void client_build_reg_recv_buff_cmd(connect_t* conn) {
@@ -296,168 +560,5 @@ int post_send_data(connect_t *conn, buffer_t *buff, uint32_t len) {
         conn->last_auto_seq = conn->recv_ack_cnt;
         conn->last_req_time = get_time_ns();
     }
-    return ret;
-}
-
-void parse_nd(uint64_t nd, int *id, int * worker_id, int * is_server, int * is_active) {
-    *id = (nd & 0xFFFFFFFF);
-    *worker_id = ((nd >> 32) & 0xFF);
-    uint8_t type  = (((nd >> 32) & 0xFF00) >> 8);
-    *is_server = type & 0x80;
-    *is_active = type & 0x40;
-}
-
-const char *net_status_string(int16_t status) { return NULL; }
-
-static inline void init_buff(buffer_t* buff, connect_t* conn, int index, int type) {
-    buff->context = (void*) conn;
-    buff->index = index;
-    list_head_init(&buff->node);
-    buff->type = type;
-    return;
-}
-
-int conn_reg_data_buff(connect_t * conn, uint32_t block_size, uint32_t block_cnt, int mem_type, buffer_t * buff_array) {
-    void* data_buff    = NULL;
-    worker_t *worker   = conn->worker;
-
-    data_buff = malloc(block_size * block_cnt);
-    if (data_buff == NULL) {
-        LOG(ERROR, "conn(%lu-%p) malloc recv data failed, errno:%d", conn->nd, conn, errno);
-        return -1;
-    }
-
-    for (int i = 0; i < block_cnt; i++) {
-        buffer_t *buff = buff_array + i;
-        init_buff(buff, conn, i, 0);
-        buff->data = data_buff + (i * block_size);
-
-        buff->mr = ibv_reg_mr(worker->pd, buff->data, block_size, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-        if (buff->mr == NULL) {
-            LOG(ERROR, "conn(%lu-%p) reg recv buff failed, errno:%d", conn->nd, conn, errno);
-            goto failed;
-        }
-    }
-
-    return 0;
-
-failed:
-    for (int i = 0; i < block_cnt; i++) {
-        buffer_t *buff = buff_array + i;
-        if (buff->mr != NULL)
-            ibv_dereg_mr(buff->mr);
-        buff->mr = NULL;
-    }
-    free(data_buff);
-    return -1;
-}
-
-int conn_bind_remote_recv_key(connect_t *conn, meta_t* rmeta) {
-    assert(conn != NULL);
-    assert(rmeta != NULL);
-    assert(conn->send_buff != NULL);
-
-    for (int i = 0; i < rmeta->count; i++) {
-        buffer_t *buff = conn->send_buff + i;
-        buff->peer_rkey = rmeta->rkey[i];
-        buff->peer_addr = rmeta->addr[i];
-        list_add_tail(&conn->send_free_list, &buff->node);
-        conn->send_win_size++;
-    }
-
-    return 0;
-}
-
-int dereg_buffer(buffer_t *buff_arr, int len) {
-    int ret = 0;
-    for (int i = 0; i < len; i++) {
-        buffer_t *buff = buff_arr + i;
-        if (buff->mr != NULL) {
-            ret = ibv_dereg_mr(buff->mr);
-            if (ret == 0) {
-                buff->mr   = NULL;
-            }
-            LOG(INFO, "ibv_dereg_mr return: %d", ret);
-            break;
-        }
-    }
-    
-    return ret;
-}
-
-int free_buffer(buffer_t *buff) {
-    if (buff == NULL) {
-        return 0;
-    }
-
-    if (buff->mr != NULL)
-        ibv_dereg_mr(buff->mr);
-    if (buff->data != NULL)
-        free(buff->data);
-
-    buff->mr   = NULL;
-    buff->data = NULL;
-    free(buff);
-    return 0;
-}
-
-
-void dereg_all_buffer(connect_t * conn) {
-    if (dereg_buffer(conn->send_meta, 1) == 0
-        && dereg_buffer(conn->recv_meta, 1) == 0
-        && dereg_buffer(conn->send_buff, conn->send_block_cnt) == 0
-        && dereg_buffer(conn->recv_buff, conn->recv_block_cnt) == 0) {
-        conn->buff_ref = 0;
-    }
-}
-
-void release_rdma(connect_t * conn) {
-    if (conn->qp != NULL && conn->id != NULL) {
-        rdma_destroy_qp(conn->id);
-        LOG(INFO, "rdma_destroy_qp:%p", conn->id);
-    }
-
-    if (conn->id != NULL) {
-        rdma_destroy_id(conn->id);
-        LOG(INFO, "rdma_destroy_id:%p", conn->id);
-    }
-
-    conn->id = NULL;
-    conn->qp = NULL;
-
-    dereg_all_buffer(conn);
-}
-
-
-void release_buffer(connect_t * conn) {
-    free_buffer(conn->send_meta);
-    conn->send_meta = NULL;
-    LOG(INFO, "free send_meta:%p", conn);
-
-    free_buffer(conn->recv_meta);
-    conn->recv_meta = NULL;
-    LOG(INFO, "free recv_meta:%p", conn);
-
-    free_buffer(conn->send_buff);
-    conn->send_buff = NULL;
-    LOG(INFO, "free send_buff:%p", conn);
-
-    free_buffer(conn->recv_buff);
-    conn->recv_buff = NULL;
-    LOG(INFO, "free recv_buff:%p", conn);
-}
-
-//触发rdma_disconnect，放入等待队列
-int disconnect(uint64_t nd) {
-    LOG(INFO, "disconnect:%lu", nd);
-    worker_t * worker = NULL;//get_worker_by_nd(nd);
-    connect_t * conn  = NULL;//get_connect_by_nd(nd);
-    int ret = 0;
-
-    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
-    if (conn == NULL) return 0;
-    conn->is_app_closed = 1;
-    ret = conn_close(worker, conn);
-    conn_del_ref(conn);
     return ret;
 }

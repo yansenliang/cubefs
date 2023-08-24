@@ -33,7 +33,7 @@ typedef struct client_context {
     void * recv_buff;
     void * send_buff;
     uint32_t recv_buff_size;
-    uint32_t send_buff_size;
+    int32_t  send_buff_size;
     server_context_t * srv;
 } client_context_t;
 
@@ -95,7 +95,7 @@ int client_on_send(uint64_t nd, uint32_t send_size, int status, void * user_cont
 
 int on_send(uint64_t nd, uint32_t send_size, int status, void * user_context) {
     int id, worker_id, is_server, is_active;
-    parse_nd(nd, &id, &worker_id, &is_server, &is_active);
+    cbrdma_parse_nd(nd, &id, &worker_id, &is_server, &is_active);
     if (is_active) {
         return client_on_send(nd, send_size, status, user_context);
     } else {

@@ -88,9 +88,14 @@ extern "C" {
 
     void cbrdma_init_config(cbrdma_config_t *config);
 
+    void cbrdma_set_log_level(int level);
+
     int cbrdma_init(cbrdma_config_t *config);
 
     void cbrdma_destroy();
+
+    //return msg numer
+    int cbrdma_worker_poll(uint32_t worker_id, complete_msg_t* msgs, int msg_len);
 
 
     int cbrdma_listen(const char * ip, uint16_t port, uint32_t recv_block_size, uint32_t recv_block_cnt, int mem_type, accept_conn_cb_t cb, void* server_context, uint64_t *nd);
@@ -100,33 +105,28 @@ extern "C" {
     //0 : timeout retry;
     //<0: err occur
     //>0: data size
-    void* cbrdma_get_send_buff(uint64_t nd, uint32_t size, int64_t timeout_us, int32_t *ret_size);
+    void* cbrdma_get_send_buff(uint64_t nd, int32_t size, int64_t timeout_us, int32_t *ret_size);
 
     int cbrdma_send(uint64_t nd, void* buff, uint32_t len);
 
     int cbrdma_release_recv_buff(uint64_t nd, void *data_ptr);
-
-    void cbrdma_close(uint64_t nd);
-
-    void cbrdma_set_log_level(int level);
 
     //在用户服务端接受连接时，将用户上下文跟nd关联起来
     void cbrdma_set_user_context(uint64_t nd, void * user_context);
 
     void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us);
 
-    //return msg numer
-    int cbrdma_worker_poll(uint32_t worker_id, complete_msg_t* msgs, int msg_len);
+    void cbrdma_close(uint64_t nd);
 
-    void net_monitor(cbrdma_metrics_t *m);
+    //monitor
 
-    void parse_nd(uint64_t nd, int *id, int * worker_id, int * is_server, int * is_active);
+    void cbrdma_net_monitor(cbrdma_metrics_t *m);
 
-    const char *net_status_string(int16_t status);
+    void cbrdma_parse_nd(uint64_t nd, int *id, int * worker_id, int * is_server, int * is_active);
 
-    void get_conn_counter(uint64_t nd, conn_counter_t* counter);
+    const char *cbrdma_net_status_string(int16_t status);
 
-    int64_t get_time_ns();
+    void cbrdma_get_conn_counter(uint64_t nd, conn_counter_t* counter);
 
 #ifdef __cplusplus
 }

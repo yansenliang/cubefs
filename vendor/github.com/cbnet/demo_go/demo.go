@@ -78,6 +78,26 @@ func (handler *logHandler) Error(format string, v ...interface{}) {
 	}
 }
 
+func (handler *logHandler) Flush() {
+	if handler.Fp != nil {
+		handler.Fp.Sync()
+	}
+}
+
+func (conn *CbConnect) AutoSend(sendSize int) (err error) {
+	buff, err := conn.GetSendBuf(sendSize - 64, -1)
+	if err != nil {
+		return
+	}
+
+	if err = conn.Send(buff, cap(buff)); err != nil {
+		logger.Info("send failed:%s", err.Error())
+		panic(fmt.Sprint("conn(%d-%p) send failed, err:%s", conn.GetNd(), conn, err.Error()))
+		return
+	}
+	return
+}
+
 func onRecv(ctx *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
 	conn := (*CbConnect)(ctx.GetUserContext())
 
@@ -92,15 +112,8 @@ func onRecv(ctx *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
 
 func onSend(ctx *cbrdma.RDMAConn, sendLen int, status int) {
 	conn := (*CbConnect)(ctx.GetUserContext())
-	buff, err := conn.GetSendBuf(recvSize - 64, -1)
-	if err != nil {
+	if err := conn.AutoSend(recvSize - 64); err != nil {
 		atomic.StoreUint32(&conn.needSend, 1)
-		return
-	}
-
-	if err = conn.Send(buff, cap(buff)); err != nil {
-		logger.Info("send failed:%s", err.Error())
-		panic(fmt.Sprint("conn(%d-%p) send failed, err:%s", conn.GetNd(), conn, err.Error()))
 		return
 	}
 	conn.sendCnt++
@@ -122,7 +135,7 @@ func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 	conn.Init(onRecv, onSend, onDisconnected, onClosed, unsafe.Pointer(conn))
 	s.connMap[conn.GetNd()] = conn
 	conn.ConnType = 2
-	conn.needSend = 1
+	conn.needSend = 0
 	conn.start = time.Now()
 
 	go func(c *CbConnect) {
@@ -135,25 +148,24 @@ func AcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 			}
 
 			if atomic.LoadUint32(&conn.needSend) == 1 {
-				buff, err := conn.GetSendBuf(recvSize - 64, -1)
-				if err != nil {
+				if err := c.AutoSend(recvSize - 64); err != nil {
 					if err == cbrdma.RetryErr {
 						continue
 					}
-					return
-				}
-				if err = conn.Send(buff, cap(buff)); err != nil {
-					panic(fmt.Sprint("conn(%d-%p) send failed, err:%s", conn.GetNd(), conn, err.Error()))
+					logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, c.sendCnt, c.recvCnt)
+					break
 				}
 				atomic.StoreUint32(&conn.needSend, 0)
 			}
 
 			time.Sleep(time.Microsecond * 5)
 		}
+		c.Close()
 
 	}(conn)
 	return &conn.RDMAConn
 }
+
 
 func SyncAcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 	s := (*CbServer)(server.GetUserContext())
@@ -172,17 +184,12 @@ func SyncAcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 			recvBuff, _ := syncConn.GetRecvBuff()
 			syncConn.ReleaseRecvBuffer(recvBuff)
 
-			buff, err := syncConn.GetSendBuf(recvSize - 64, -1)
-			if err != nil {
+			if err := syncConn.AutoSend(recvSize - 64); err != nil {
 				if err == cbrdma.RetryErr {
 					continue
 				}
-				return
-			}
-			if err := syncConn.Send(buff, cap(buff)); err != nil {
-				logger.Error("send failed:%s", err.Error())
-				syncConn.Close()
-				return
+				logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, syncConn.sendCnt, syncConn.recvCnt)
+				break
 			}
 
 			syncConn.recvCnt++
@@ -193,6 +200,7 @@ func SyncAcceptCbFunc(server *cbrdma.RDMAServer) *cbrdma.RDMAConn {
 				logger.Info("conn(%d-%p) recv %d, cost:%v, per op:%v", conn.GetNd(), conn, conn.recvCnt, cost, cost/(time.Duration(syncConn.recvCnt)))
 			}
 		}
+		syncConn.Close()
 	}(conn)
 
 	go func(c *CbConnect) {
@@ -234,22 +242,19 @@ func startAsyncClient() {
 			}
 
 			if atomic.LoadUint32(&conn.needSend) == 1 {
-				buff, err := conn.GetSendBuf(recvSize - 64, -1)
-				if err != nil {
+				if err := c.AutoSend(recvSize - 64); err != nil {
 					if err == cbrdma.RetryErr {
 						continue
 					}
-					return
-				}
-				if err = conn.Send(buff, cap(buff)); err != nil {
-					panic(fmt.Sprint("conn(%d-%p) send failed, err:%s", conn.GetNd(), conn, err.Error()))
+					logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, c.sendCnt, c.recvCnt)
+					break
 				}
 				atomic.StoreUint32(&conn.needSend, 0)
 			}
 
 			time.Sleep(time.Microsecond * 5)
 		}
-
+		c.Close()
 	}(conn)
 }
 
@@ -279,17 +284,12 @@ func startSyncClient() {
 
 	}(conn)
 	for {
-		buff, err := conn.GetSendBuf(recvSize - 64, -1)
-		if err != nil {
+		if err := conn.AutoSend(recvSize - 64); err != nil {
 			if err == cbrdma.RetryErr {
 				continue
 			}
-			return
-		}
-
-		if err := conn.Send(buff, cap(buff)); err != nil {
-			logger.Error("send failed:%s", err.Error())
-			return
+			logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, c.sendCnt, c.recvCnt)
+			break
 		}
 		conn.sendCnt++
 
@@ -306,6 +306,7 @@ func startSyncClient() {
 			logger.Info("conn(%d-%p) recv %d, cost:%v, per op:%v", conn.GetNd(), conn, conn.recvCnt, cost, cost/(time.Duration(conn.recvCnt)))
 		}
 	}
+	conn.Close()
 }
 
 func startClient() {
@@ -327,7 +328,6 @@ func startServer() {
 		server.OnAccept = SyncAcceptCbFunc
 	}
 	iPort, _ := strconv.Atoi(port)
-	server.Ctx = unsafe.Pointer(server)
 	wg.Add(1)
 	if err := server.Listen(ip, iPort, recvSize, recvCnt, 0); err != nil {
 		logger.Error("server(%s:%d) listen failed:%s\n", ip, iPort)

@@ -48,7 +48,7 @@ import (
 func (conn *RDMAConn) GetCounter() *ConnCounter {
 	var Cinfo C.conn_counter_t
 	info := &ConnCounter{}
-	C.get_conn_counter(conn.connPtr, &Cinfo)
+	C.cbrdma_get_conn_counter(conn.connPtr, &Cinfo)
 
 	info.PostSend = uint64(Cinfo.send_post_cnt)
 	info.SendAck = uint64(Cinfo.send_ack_cnt)
@@ -110,6 +110,7 @@ func (conn *RDMAConn) OnSendCB(sendLen int, status int) {
 }
 
 func (conn *RDMAConn) Init(recvFunc OnRecvFunc, sendFunc OnSendFunc, disconnectedFunc OnDisconnectedFunc, closedFunc OnClosedFunc, ctx unsafe.Pointer) {
+	gLogHandler.Error("conn:(%d-%p) Dial(%p, %p, %p, %p, %p)", conn.connPtr, conn, recvFunc, sendFunc, disconnectedFunc, closedFunc, ctx)
 	conn.ctx = ctx
 	conn.onRecv = recvFunc
 	conn.onSend = sendFunc
@@ -129,6 +130,7 @@ func (conn *RDMAConn) Init(recvFunc OnRecvFunc, sendFunc OnSendFunc, disconnecte
 }
 
 func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memType int) error {
+	gLogHandler.Error("conn:(%d-%p) Dial(%s, %d, %d, %d, %d)", conn.connPtr, conn, ip, port, recvSize, recvCnt, memType)
 	cIp := C.CString(ip)
 	defer C.free(unsafe.Pointer(cIp))
 	ret := C.cbrdma_connect(cIp, C.uint16_t(port), C.uint32_t(recvSize), C.uint32_t(recvCnt), C.int(memType), 10000, unsafe.Pointer(conn), &conn.connPtr)
@@ -145,7 +147,7 @@ func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memTy
 
 func (conn *RDMAConn) GetSendBuf(len int, timeout_us int) ([]byte, error) {
 	var buffSize C.int32_t
-	dataPtr := C.cbrdma_get_send_buff(conn.connPtr, C.uint32_t(len), C.int64_t(timeout_us), &buffSize)
+	dataPtr := C.cbrdma_get_send_buff(conn.connPtr, C.int32_t(len), C.int64_t(timeout_us), &buffSize)
 	if buffSize == 0 {
 		return nil, RetryErr
 	}
@@ -222,18 +224,22 @@ func (conn *RDMAConn) RemoteAddr() net.Addr {
 }
 
 func (conn *RDMAConn)  SetDeadline(t time.Time) error {
+	gLogHandler.Debug("conn:(%d-%p) SetDeadline(%v)", conn.connPtr, conn, t)
 	return nil
 }
 
 func (conn *RDMAConn) SetReadDeadline(t time.Time) error {
+	gLogHandler.Debug("conn:(%d-%p) SetReadDeadline(%v)", conn.connPtr, conn, t)
 	return nil
 }
 
 func (conn *RDMAConn) SetWriteDeadline(t time.Time) error {
+	gLogHandler.Debug("conn:(%d-%p) SetWriteDeadline(%v)", conn.connPtr, conn, t)
 	return nil
 }
 
 func (conn *RDMAConn) Close() error {
+	gLogHandler.Error("conn:(%d-%p) Clsoe()", conn.connPtr, conn)
 
 	if _, exist := gConnMap.LoadAndDelete(conn.connPtr); !exist {
 		//already clsoed
@@ -273,22 +279,6 @@ func ServerOnAccept(serverNd C.uint64_t, connNd C.uint64_t, context *C.void) C.i
 		return 0
 	}
 
-	//if conn.onRecv == nil {
-	//	conn.onRecv = server.DefOnRecv
-	//}
-	//
-	//if conn.onSend == nil {
-	//	conn.onSend = server.DefOnSend
-	//}
-
-	//if conn.onClosed == nil {
-	//	conn.onClosed = server.DefOnClosed
-	//}
-	//
-	//if conn.onDisconnected == nil {
-	//	conn.onDisconnected = server.DefOnDisconnected
-	//}
-
 	atomic.StoreInt32(&conn.state, CONN_ST_CONNECTED)
 	conn.connPtr = connNd
 	C.cbrdma_set_user_context(connNd, unsafe.Pointer(conn))
@@ -310,6 +300,7 @@ func NewServer(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend OnSendFunc, onDi
 }
 
 func (server *RDMAServer) Init(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend OnSendFunc, onDisconnected OnDisconnectedFunc, onClosed OnClosedFunc, ctx unsafe.Pointer) {
+	gLogHandler.Error("server:(%d-%p) init (%p, %p, %p, %p, %p, %p)", server.serverPtr, server, onAccept, onRecv, onSend, onDisconnected, onClosed, ctx)
 	server.OnAccept = onAccept
 	server.DefOnRecv = onRecv
 	server.DefOnSend = onSend
@@ -320,6 +311,7 @@ func (server *RDMAServer) Init(onAccept OnAcceptFunc, onRecv OnRecvFunc, onSend 
 }
 
 func (server *RDMAServer) Listen(ip string, port int, defRecvSize int, defRecvCnt int, memType int) error {
+	gLogHandler.Error("server:(%d-%p) Listen (%s, %d, %d, %d, %d)", server.serverPtr, server, ip, port, defRecvSize, defRecvCnt, memType)
 	cIp := C.CString(ip)
 	defer C.free(unsafe.Pointer(cIp))
 	server.ListernIp = ip
@@ -398,6 +390,7 @@ func LogCbFunc(level C.int, buff *C.char, length C.int) {
 	case C.FATAL:
 		gLogHandler.Error(goStr)
 	}
+	gLogHandler.Flush()
 }
 
 //export NetOnDisconnectedCb
@@ -410,6 +403,7 @@ func NetOnDisconnectedCb(nd C.uint64_t, userContext *C.void) {
 	conn := (*RDMAConn)(unsafe.Pointer(userContext))
 	atomic.StoreInt32(&conn.state, CONN_ST_CLOSE)
 	if conn.onDisconnected != nil {
+		gLogHandler.Error("conn(%d-%p) notify disconnect", conn.connPtr, conn)
 		conn.onDisconnected(conn)
 	}
 	return
@@ -424,6 +418,7 @@ func NetOnClosedCb(nd C.uint64_t, userContext *C.void) {
 
 	conn := (*RDMAConn)(unsafe.Pointer(userContext))
 	if conn.onClosed != nil {
+		gLogHandler.Error("conn(%d-%p) notify closed", conn.connPtr, conn)
 		conn.onClosed(conn)
 	}
 	return

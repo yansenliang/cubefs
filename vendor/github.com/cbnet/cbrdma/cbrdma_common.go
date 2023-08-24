@@ -51,6 +51,7 @@ type NetLogger interface {
     Info(format string, v ...interface{})
     Warn(format string, v ...interface{})
     Error(format string, v ...interface{})
+    Flush()
 }
 
 type RecvMsg struct {

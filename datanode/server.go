@@ -585,14 +585,18 @@ func onRecv(conn *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
 	}
 	p.Data = make([]byte, size)
 	copy(p.Data, buffer[unit.PacketHeaderSize + p.ArgLen: unit.PacketHeaderSize + p.ArgLen + size])
-	if err := m.checkPartition(p); err != nil {
-		//todo reply
-		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
-		p.WriteToConn(conn, 2)
-		return
-	}
 
-	go m.OperatePacket(p, conn)
+	go func() {
+		if err := m.checkPartition(p); err != nil {
+			//todo reply
+			p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
+			_ = p.WriteToConn(conn, 2)
+			return
+		}
+		_ = m.OperatePacket(p, conn)
+		_ = p.WriteToConn(conn, 2)
+	}()
+
 	return
 }
 

@@ -48,7 +48,7 @@ typedef struct client_context {
 
 int on_send(uint64_t nd, uint32_t send_size, int status, void * user_context) {
     int id, worker_id, is_server, is_active;
-    parse_nd(nd, &id, &worker_id, &is_server, &is_active);
+    cbrdma_parse_nd(nd, &id, &worker_id, &is_server, &is_active);
 
     client_context_t * ctx = (client_context_t *)user_context;
     if(status <= 0 || (is_active && ctx->send_count >= ctx->loop_count) ) {
@@ -61,7 +61,7 @@ int on_send(uint64_t nd, uint32_t send_size, int status, void * user_context) {
     ctx->send_count++;
     ctx->send_bytes += send_size;
 
-    uint32_t send_buff_size = 0;
+    int32_t send_buff_size = 0;
     void * send_buff = cbrdma_get_send_buff(nd, FLAGS_msg_size, 10000, &send_buff_size);
     if (send_buff == NULL) {
         LOG(ERROR) << "cbrdma_get_send_buff failed";
@@ -80,7 +80,7 @@ int on_send(uint64_t nd, uint32_t send_size, int status, void * user_context) {
 
 int on_recv(uint64_t nd, void* recv_buff, uint32_t recv_size, int status, void * user_context) {
     int id, worker_id, is_server, is_active;
-    parse_nd(nd, &id, &worker_id, &is_server, &is_active);
+    cbrdma_parse_nd(nd, &id, &worker_id, &is_server, &is_active);
 
     client_context_t * ctx = (client_context_t *)user_context;
     if(status <= 0) {
@@ -155,7 +155,7 @@ void start_client(int index) {
         return;
     }
 
-    uint32_t send_buff_size = 0;
+    int32_t send_buff_size = 0;
     void * send_buff = cbrdma_get_send_buff(nd, FLAGS_msg_size, 10000, &send_buff_size);
     if (send_buff == NULL) {
         LOG(ERROR) << "cbrdma_get_send_buff failed";

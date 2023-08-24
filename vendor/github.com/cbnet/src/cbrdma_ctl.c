@@ -33,6 +33,12 @@ static void on_connected(struct rdma_cm_id *id);
 static void on_accept(struct rdma_cm_id* listen_id, struct rdma_cm_id* id);
 static void on_disconnected(struct rdma_cm_id* id);
 
+extern log_handler_cb_t g_log_handler;
+extern on_disconnected_cb_t    g_disconnected_handler;
+extern on_error_cb_t    g_error_handler;
+extern on_closed_cb_t    g_closed_handler;
+extern net_env_t        *g_net_env;
+
 const int TIMEOUT_IN_MS = 500; /* ms */
 
 //创建pd, cq, 发送队列
@@ -685,40 +691,6 @@ static void on_connected(struct rdma_cm_id *id) {
     return;
 }
 
-int conn_close(worker_t* worker, connect_t* conn) {
-    int ret = 0;
-    uint64_t notify_value = 1;
-    pthread_spin_lock(&conn->spin_lock);
-    if (conn->is_app_closed) {
-        pthread_spin_unlock(&conn->spin_lock);
-        LOG(ERROR, "conn(%lu-%p) already closed, stat:%d", conn->nd, conn, conn->state);
-        return 1;
-    }
-
-    if (conn->efd > 0) {
-        write(conn->efd, &notify_value, 8);
-    }
-
-    conn->is_app_closed = 1;
-    if (conn->state != CONN_ST_CLOSED) {
-        set_conn_state(conn, CONN_ST_CLOSING);
-    }
-
-    if (conn->close_start == 0) {
-        conn->close_start = get_time_ns();
-    }
-
-    ret = rdma_disconnect(conn->id);
-    LOG(INFO, "rdma_disconnect:%p", conn->id);
-
-    pthread_spin_unlock(&conn->spin_lock);
-
-    del_conn_from_worker(conn->nd, worker, worker->nd_map);
-    add_conn_to_worker(conn, worker, worker->closing_nd_map);
-
-    return ret;
-}
-
 static void on_disconnected(struct rdma_cm_id* id) {
     connect_t *conn = (connect_t*) id->context;
     int is_onclose = 0;
@@ -745,7 +717,7 @@ static void on_disconnected(struct rdma_cm_id* id) {
     pthread_spin_unlock(&worker->lock);
 
     if (is_onclose) {
-        g_disconnected_handler(conn->nd, conn->context);
+        conn_notify_disconnect(conn);
     }
 
     conn_del_ref(conn);
@@ -834,7 +806,12 @@ void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us) {
         return;
     }
     pthread_spin_lock(&conn->spin_lock);
-    conn->recv_timeout_ns = timeout_us * 1000;
+    if (timeout_us > 0) {
+        conn->recv_timeout_ns = timeout_us * 1000;
+    } else {
+        conn->recv_timeout_ns = -1;
+    }
+
     pthread_spin_unlock(&conn->spin_lock);
     conn_del_ref(conn);
     return;
@@ -848,7 +825,7 @@ void cbrdma_set_log_level(int level) {
 void cbrdma_close(uint64_t nd) {
     LOG(INFO, "cbrdma_close:%ld", nd);
     int id = 0, worker_id = 0, is_server = 0, is_active = 0;
-    parse_nd(nd, &id, &worker_id, &is_server, &is_active);
+    cbrdma_parse_nd(nd, &id, &worker_id, &is_server, &is_active);
     if (is_server) {
         close_server(nd);
     } else {
@@ -856,7 +833,7 @@ void cbrdma_close(uint64_t nd) {
     }
 }
 
-void net_monitor(cbrdma_metrics_t *m) {
+void cbrdma_net_monitor(cbrdma_metrics_t *m) {
     memset(m, 0, sizeof(cbrdma_metrics_t));
     m->server_cnt = g_net_env->server_cnt;
     m->worker_cnt = g_net_env->worker_num;
@@ -874,7 +851,7 @@ void net_monitor(cbrdma_metrics_t *m) {
     pthread_spin_unlock(&g_net_env->server_lock);
 }
 
-void get_conn_counter(uint64_t nd, conn_counter_t *info) {
+void cbrdma_get_conn_counter(uint64_t nd, conn_counter_t *info) {
     worker_t * worker = NULL;//get_worker_by_nd(nd);
     connect_t * conn  = NULL;//get_connect_by_nd(nd);
     get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
