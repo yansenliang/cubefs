@@ -579,8 +579,12 @@ func onRecv(conn *cbrdma.RDMAConn, buffer []byte, recvLen int, status int) {
 	m := (*DataNode) (conn.GetUserContext())
 	p := repl.NewPacket(context.Background())
 	_ = p.UnmarshalHeader(buffer)
-	p.Data = make([]byte, p.Size)
-	copy(p.Data, buffer[unit.PacketHeaderSize + p.ArgLen: unit.PacketHeaderSize + p.Size])
+	size := uint32(0)
+	if (p.Opcode == proto.OpRead || p.Opcode == proto.OpStreamRead || p.Opcode == proto.OpExtentRepairRead || p.Opcode == proto.OpStreamFollowerRead) && p.ResultCode == proto.OpInitResultCode {
+		size = 0
+	}
+	p.Data = make([]byte, size)
+	copy(p.Data, buffer[unit.PacketHeaderSize + p.ArgLen: unit.PacketHeaderSize + p.ArgLen + size])
 	if err := m.checkPartition(p); err != nil {
 		//todo reply
 		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
