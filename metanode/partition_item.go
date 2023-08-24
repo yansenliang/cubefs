@@ -138,6 +138,7 @@ type MetaItemIterator struct {
 	//txRollbackInodes   map[uint64]*TxRollbackInode
 	txRbDentryTree *BTree
 	//txRollbackDentries map[string]*TxRollbackDentry
+	dirVerTree *BTree
 
 	filenames []string
 
@@ -158,6 +159,7 @@ func newMetaItemIterator(mp *metaPartition) (si *MetaItemIterator, err error) {
 	si.dentryTree = mp.dentryTree.GetTree()
 	si.extendTree = mp.extendTree.GetTree()
 	si.multipartTree = mp.multipartTree.GetTree()
+	si.dirVerTree = mp.dirVerTree.GetTree()
 	si.txTree = mp.txProcessor.txManager.txTree.GetTree()
 	//si.transactions = mp.txProcessor.txManager.transactions
 	si.txRbInodeTree = mp.txProcessor.txResource.txRbInodeTree.GetTree()

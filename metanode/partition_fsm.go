@@ -99,6 +99,18 @@ func (mp *metaPartition) Apply(command []byte, index uint64) (resp interface{}, 
 			return
 		}
 		resp = mp.fsmExtentsTruncateByDirVer(inodeDirVer)
+	case opFSMCreateDirSnap:
+		ifo := &proto.DirSnapShotInfo{}
+		if err = json.Unmarshal(msg.V, ifo); err != nil {
+			return
+		}
+		resp = mp.fsmCreateDirSnapshot(ifo)
+	case opFSMMarkDelDirSnap:
+		ifo := &proto.DirVerItem{}
+		if err = json.Unmarshal(msg.V, ifo); err != nil {
+			return
+		}
+		resp = mp.fsmDelDirSnap(ifo)
 	case opFSMUnlinkInodeBatch:
 		inodes, err := InodeBatchUnmarshal(msg.V)
 		if err != nil {
@@ -249,6 +261,7 @@ func (mp *metaPartition) Apply(command []byte, index uint64) (resp interface{}, 
 		txRbInodeTree := mp.txProcessor.txResource.txRbInodeTree.GetTree()
 		txRbDentryTree := mp.txProcessor.txResource.txRbDentryTree.GetTree()
 		txId := mp.txProcessor.txManager.txIdAlloc.getTransactionID()
+		dirVerTree := mp.dirVerTree.GetTree()
 
 		msg := &storeMsg{
 			command:        opFSMStoreTick,
@@ -261,6 +274,7 @@ func (mp *metaPartition) Apply(command []byte, index uint64) (resp interface{}, 
 			txTree:         txTree,
 			txRbInodeTree:  txRbInodeTree,
 			txRbDentryTree: txRbDentryTree,
+			dirVerTree:     dirVerTree,
 			multiVerList:   mp.getVerList(),
 		}
 		mp.storeChan <- msg
@@ -536,6 +550,7 @@ func (mp *metaPartition) ApplySnapshot(peers []raftproto.Peer, iter raftproto.Sn
 		dentryTree    = NewBtree()
 		extendTree    = NewBtree()
 		multipartTree = NewBtree()
+		dirVerTree    = NewBtree()
 		txTree        = NewBtree()
 		//transactions       = make(map[string]*proto.TransactionInfo)
 		txRbInodeTree = NewBtree()
@@ -552,6 +567,7 @@ func (mp *metaPartition) ApplySnapshot(peers []raftproto.Peer, iter raftproto.Sn
 			mp.dentryTree = dentryTree
 			mp.extendTree = extendTree
 			mp.multipartTree = multipartTree
+			mp.dirVerTree = dirVerTree
 			mp.config.Cursor = cursor
 			mp.txProcessor.txManager.txTree = txTree
 			//mp.txProcessor.txManager.transactions = transactions
@@ -570,6 +586,7 @@ func (mp *metaPartition) ApplySnapshot(peers []raftproto.Peer, iter raftproto.Sn
 				dentryTree:    mp.dentryTree,
 				extendTree:    mp.extendTree,
 				multipartTree: mp.multipartTree,
+				dirVerTree:    mp.dirVerTree,
 				txTree:        mp.txProcessor.txManager.txTree,
 				//transactions:       mp.txProcessor.txManager.transactions,
 				txRbInodeTree: mp.txProcessor.txResource.txRbInodeTree,

@@ -41,6 +41,7 @@ type storeMsg struct {
 	txRbDentryTree *BTree
 	//txRollbackDentries map[string]*TxRollbackDentry
 	multiVerList []*proto.VersionInfo
+	dirVerTree   *BTree
 }
 
 func (mp *metaPartition) startSchedule(curIndex uint64) {

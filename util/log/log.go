@@ -534,6 +534,10 @@ func LogInfof(format string, v ...interface{}) {
 }
 
 func EnableInfo() bool {
+	if gLog == nil {
+		return false
+	}
+
 	return InfoLevel&gLog.level == gLog.level
 }
 
@@ -594,6 +598,10 @@ func LogDebugf(format string, v ...interface{}) {
 }
 
 func EnableDebug() bool {
+	if gLog == nil {
+		return false
+	}
+
 	return DebugLevel&gLog.level == gLog.level
 }
 

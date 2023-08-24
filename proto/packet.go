@@ -234,6 +234,7 @@ const (
 	// multiVersion to dp/mp
 	OpVersionOperation uint8 = 0xD5
 	OpSplitMarkDelete  uint8 = 0xD6
+	OpInternalErr      uint8 = 0xD7
 )
 
 const (
@@ -270,6 +271,7 @@ const (
 	VersionDeleted        = 2
 	VersionDeleting       = 3
 	VersionDeleteAbnormal = 4
+	VersionMarkDelete     = 5
 )
 
 const (
@@ -365,6 +367,8 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpMarkDelete"
 	case OpSplitMarkDelete:
 		m = "OpMarkDelete"
+	case OpInternalErr:
+		m = "OpInternalErr"
 	case OpWrite:
 		m = "OpWrite"
 	case OpTryWriteAppend:
