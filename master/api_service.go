@@ -5258,6 +5258,7 @@ func (m *Server) handleLcNodeTaskResponse(w http.ResponseWriter, r *http.Request
 	sendOkReply(w, r, newSuccessHTTPReply(fmt.Sprintf("%v", http.StatusOK)))
 	m.cluster.handleLcNodeTaskResponse(tr.OperatorAddr, tr)
 }
+
 func (m *Server) SetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	var (
 		bytes []byte
@@ -5279,6 +5280,7 @@ func (m *Server) SetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	_ = m.cluster.SetBucketLifecycle(&req)
 	sendOkReply(w, r, newSuccessHTTPReply(fmt.Sprintf("PutBucketLifecycleConfiguration successful ")))
 }
+
 func (m *Server) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	var (
 		err    error
@@ -5299,6 +5301,7 @@ func (m *Server) GetBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	}
 	sendOkReply(w, r, newSuccessHTTPReply(lcConf))
 }
+
 func (m *Server) DelBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	var (
 		err  error
@@ -5317,6 +5320,7 @@ func (m *Server) DelBucketLifecycle(w http.ResponseWriter, r *http.Request) {
 	log.LogWarn(msg)
 	sendOkReply(w, r, newSuccessHTTPReply(msg))
 }
+
 func (m *Server) lcnodeInfo(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
@@ -5343,4 +5347,76 @@ func (m *Server) lcnodeInfo(w http.ResponseWriter, r *http.Request) {
 	default:
 		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: "invalid op"})
 	}
+}
+
+func (m *Server) AllocDirSnapshotVersion(w http.ResponseWriter, r *http.Request) {
+	var (
+		err     error
+		volName string
+		vol     *Vol
+		verInfo *proto.DirSnapshotVersionInfo
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminDirSnapshotAllocVersion))
+	defer func() {
+		doStatAndMetric(proto.AdminDirSnapshotAllocVersion, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if volName, err = parseAndExtractName(r); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(err))
+		return
+	}
+
+	if vol, err = m.cluster.getVol(volName); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(proto.ErrVolNotExists))
+		return
+	}
+
+	if verInfo, err = vol.DirSnapVersionMgr.AllocVersion(); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeVersionOpError, Msg: err.Error()})
+		return
+	}
+
+	log.LogInfof("[AllocDirSnapshotVersion] vol[%v] allocated version: %v", volName, verInfo.SnapVersion)
+	sendOkReply(w, r, newSuccessHTTPReply(verInfo))
+}
+
+func (m *Server) BatchDeleteDirSnapshotVersion(w http.ResponseWriter, r *http.Request) {
+	var (
+		bytes   []byte
+		err     error
+		volName string
+		vol     *Vol
+		verInfo *proto.DirSnapshotVersionInfo
+	)
+
+	metric := exporter.NewTPCnt(apiToMetricsName(proto.AdminDirSnapshotBatchDeleteVersion))
+	defer func() {
+		doStatAndMetric(proto.AdminDirSnapshotBatchDeleteVersion, metric, err, map[string]string{exporter.Vol: volName})
+	}()
+
+	if bytes, err = ioutil.ReadAll(r.Body); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	var req = proto.MasterBatchDelDirVersionReq{}
+	if err = json.Unmarshal(bytes, &req); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeParamError, Msg: err.Error()})
+		return
+	}
+
+	volName = req.Vol
+	if vol, err = m.cluster.getVol(volName); err != nil {
+		sendErrReply(w, r, newErrHTTPReply(proto.ErrVolNotExists))
+		return
+	}
+
+	if err = vol.DirSnapVersionMgr.AddToDelDirVerInfos(req.MetaPartitionId, req.DirInfos); err != nil {
+		sendErrReply(w, r, &proto.HTTPReply{Code: proto.ErrCodeVersionOpError, Msg: err.Error()})
+		return
+	}
+
+	log.LogInfof("[AllocDirSnapshotVersion] vol[%v] allocated version: %v", volName, verInfo.SnapVersion)
+	sendOkReply(w, r, newSuccessHTTPReply(verInfo))
 }

@@ -590,6 +590,15 @@ func (m *Server) registerAPIRoutes(router *mux.Router) {
 	router.NewRoute().Methods(http.MethodGet).
 		Path(proto.QuotaBatchModifyPath).
 		HandlerFunc(m.BatchModifyQuotaFullPath)
+
+	//dir snapshot APIs
+	router.NewRoute().Methods(http.MethodGet).
+		Path(proto.AdminDirSnapshotAllocVersion).
+		HandlerFunc(m.AllocDirSnapshotVersion)
+	router.NewRoute().Methods(http.MethodGet).
+		Path(proto.AdminDirSnapshotBatchDeleteVersion).
+		HandlerFunc(m.BatchDeleteDirSnapshotVersion)
+
 }
 
 func (m *Server) registerHandler(router *mux.Router, model string, schema *graphql.Schema) {

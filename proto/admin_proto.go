@@ -156,7 +156,7 @@ const (
 	AdminDeleteMetaReplica             = "/metaReplica/delete"
 	AdminPutDataPartitions             = "/dataPartitions/set"
 
-	//admin multi version snapshot
+	//admin multi version snapshot (Taking snapshots at the volume level granularity)
 	AdminCreateVersion     = "/multiVer/create"
 	AdminDelVersion        = "/multiVer/del"
 	AdminGetVersionInfo    = "/multiVer/get"
@@ -196,11 +196,13 @@ const (
 	UserTransferVol     = "/user/transferVol"
 	UserList            = "/user/list"
 	UsersOfVol          = "/vol/users"
+
 	//graphql api for header
 	HeadAuthorized  = "Authorization"
 	ParamAuthorized = "_authorization"
 	UserKey         = "_user_key"
 	UserInfoKey     = "_user_info_key"
+
 	//quota
 	QuotaSet             = "/quota/set"
 	QuotaUpdate          = "/quota/update"
@@ -208,6 +210,10 @@ const (
 	QuotaList            = "/quota/list"
 	QuotaGet             = "/quota/get"
 	QuotaBatchModifyPath = "/quota/batchModifyPath"
+
+	//admin dir snapshot (Taking snapshots at the dir level granularity)
+	AdminDirSnapshotAllocVersion       = "/dirSnapshot/allocVersion"
+	AdminDirSnapshotBatchDeleteVersion = "/dirSnapshot/batchDeleteVersion"
 )
 
 var GApiInfo map[string]string = map[string]string{

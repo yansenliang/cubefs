@@ -102,6 +102,7 @@ type Vol struct {
 	volLock               sync.RWMutex
 	quotaManager          *MasterQuotaManager
 	VersionMgr            *VolVersionManager
+	DirSnapVersionMgr     *DirSnapVerManager
 }
 
 func newVol(vv volValue) (vol *Vol) {
@@ -114,6 +115,7 @@ func newVol(vv volValue) (vol *Vol) {
 
 	vol.dataPartitions = newDataPartitionMap(vv.Name)
 	vol.VersionMgr = newVersionMgr(vol)
+	vol.DirSnapVersionMgr = newDirSnapVerManager(vol)
 	vol.dpReplicaNum = vv.DpReplicaNum
 	vol.mpReplicaNum = vv.ReplicaNum
 	vol.Owner = vv.Owner

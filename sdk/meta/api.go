@@ -582,7 +582,7 @@ func (mw *MetaWrapper) Delete_Ver_ll(parentID uint64, name string, isDir bool, v
 
 func (mw *MetaWrapper) DeleteVerEx_ll(parentID uint64, name string, isDir bool, ver *proto.DelVer) (*proto.InodeInfo, error) {
 
-	return mw.Delete_ll_EX(parentID, name, isDir, ver.DelVel)
+	return mw.Delete_ll_EX(parentID, name, isDir, ver.DelVer)
 }
 
 func (mw *MetaWrapper) txDelete_ll(parentID uint64, name string, isDir bool) (info *proto.InodeInfo, err error) {
