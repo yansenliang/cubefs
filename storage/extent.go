@@ -215,8 +215,8 @@ func (e *Extent) RestoreFromFS() (err error) {
 	}
 	if IsTinyExtent(e.extentID) {
 		watermark := info.Size()
-		if watermark%PageSize != 0 {
-			watermark = watermark + (PageSize - watermark%PageSize)
+		if watermark%util.PageSize != 0 {
+			watermark = watermark + (util.PageSize - watermark%util.PageSize)
 		}
 		e.dataSize = watermark
 		return
@@ -282,8 +282,8 @@ func (e *Extent) WriteTiny(data []byte, offset, size int64, crc uint32, writeTyp
 	if !IsAppendWrite(writeType) {
 		return
 	}
-	if index%PageSize != 0 {
-		index = index + (PageSize - index%PageSize)
+	if index%util.PageSize != 0 {
+		index = index + (util.PageSize - index%util.PageSize)
 	}
 	e.dataSize = index
 
@@ -474,20 +474,15 @@ func (e *Extent) autoComputeExtentCrc(crcFunc UpdateCrcFunc) (crc uint32, err er
 	return crc, err
 }
 
-const (
-	PageSize          = 4 * util.KB
-	FallocFLKeepSize  = 1
-	FallocFLPunchHole = 2
-)
+
 
 // DeleteTiny deletes a tiny extent.
 func (e *Extent) DeleteTiny(offset, size int64) (hasDelete bool, err error) {
-	if int(offset)%PageSize != 0 {
+	if int(offset)%util.PageSize != 0 {
 		return false, ParameterMismatchError
 	}
-
-	if int(size)%PageSize != 0 {
-		size += int64(PageSize - int(size)%PageSize)
+	if int(size)%util.PageSize != 0 {
+		size += int64(util.PageSize - int(size)%util.PageSize)
 	}
 	if int(size)%PageSize != 0 {
 		return false, ParameterMismatchError
@@ -504,7 +499,8 @@ func (e *Extent) DeleteTiny(offset, size int64) (hasDelete bool, err error) {
 		hasDelete = true
 		return true, nil
 	}
-	err = fallocate(int(e.file.Fd()), FallocFLPunchHole|FallocFLKeepSize, offset, size)
+	log.LogDebugf("punchDelete offset %v size %v", offset, size)
+	err = fallocate(int(e.file.Fd()), util.FallocFLPunchHole|util.FallocFLKeepSize, offset, size)
 	return
 }
 
@@ -520,7 +516,7 @@ func (e *Extent) TinyExtentRecover(data []byte, offset, size int64, crc uint32, 
 	if !IsTinyExtent(e.extentID) {
 		return ParameterMismatchError
 	}
-	if offset%PageSize != 0 || offset != e.dataSize {
+	if offset%util.PageSize != 0 || offset != e.dataSize {
 		return fmt.Errorf("error empty packet on (%v) offset(%v) size(%v)"+
 			" isEmptyPacket(%v)  e.dataSize(%v)", e.file.Name(), offset, size, isEmptyPacket, e.dataSize)
 	}
@@ -538,7 +534,7 @@ func (e *Extent) TinyExtentRecover(data []byte, offset, size int64, crc uint32, 
 		if err = syscall.Ftruncate(int(e.file.Fd()), offset+size); err != nil {
 			return err
 		}
-		err = fallocate(int(e.file.Fd()), FallocFLPunchHole|FallocFLKeepSize, offset, size)
+		err = fallocate(int(e.file.Fd()), util.FallocFLPunchHole|util.FallocFLKeepSize, offset, size)
 	} else {
 		_, err = e.file.WriteAt(data[:size], int64(offset))
 	}
@@ -546,8 +542,8 @@ func (e *Extent) TinyExtentRecover(data []byte, offset, size int64, crc uint32, 
 		return
 	}
 	watermark := offset + size
-	if watermark%PageSize != 0 {
-		watermark = watermark + (PageSize - watermark%PageSize)
+	if watermark%util.PageSize != 0 {
+		watermark = watermark + (util.PageSize - watermark%util.PageSize)
 	}
 	e.dataSize = watermark
 	log.LogDebugf("after file (%v) getRealBlockNo (%v) isEmptyPacket(%v)"+
