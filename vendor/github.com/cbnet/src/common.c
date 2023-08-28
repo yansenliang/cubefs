@@ -25,6 +25,73 @@ net_env_t        *g_net_env;
 const char * conn_state_names[CONN_ST_MAX] = {"CONN_ST_INIT", "CONN_ST_CONNECTING", "CONN_ST_CONNECTED", "CONN_ST_ERROR",
     "CONN_ST_CLOSING", "CONN_ST_DISCONNECTED", "CONN_ST_CLOSED"};
 
+void* cbrdma_malloc(uint32_t size) {
+    uint32_t real_size = size + sizeof(cbrdma_mem_header) + sizeof(cbrdma_mem_tail);
+    void* ptr = NULL;
+    cbrdma_mem_header* header = NULL;
+    cbrdma_mem_tail  * tail   = NULL;
+
+    ptr = malloc(real_size);
+    if (ptr == NULL) {
+        return ptr;
+    }
+    memset(ptr, 0, real_size);
+
+    header = (cbrdma_mem_header*) ptr;
+    tail   = (cbrdma_mem_tail*) (ptr + size + sizeof(cbrdma_mem_header));
+
+    header->magic = CBRDMA_MEM_MAGIC;
+    header->len   = size;
+
+    tail->magic   = CBRDMA_MEM_MAGIC;
+    tail->len     = size;
+
+    return ptr + sizeof(cbrdma_mem_header);
+}
+
+void cbrdma_check_mem(void* ptr) {
+    cbrdma_mem_header* header = NULL;
+    cbrdma_mem_tail  * tail   = NULL;
+
+    if (ptr == NULL) {
+        return;
+    }
+
+    header = (cbrdma_mem_header*) (ptr - sizeof(cbrdma_mem_header));
+    tail = (cbrdma_mem_tail*) (ptr + header->len);
+
+    assert(header->magic == CBRDMA_MEM_MAGIC);
+    assert(tail->magic == CBRDMA_MEM_MAGIC);
+    assert(header->len == tail->len);
+    return;
+}
+
+void cbrdma_free(void* ptr) {
+    cbrdma_check_mem(ptr);
+    free((ptr - sizeof(cbrdma_mem_header) ));
+    return;
+}
+
+void cbrdma_check_buff_mem(connect_t* conn, buffer_t* buff) {
+    if (buff) {
+        cbrdma_check_mem(buff);
+    }
+
+    if (buff && buff->data) {
+        cbrdma_check_mem(buff->data);
+    }
+    return;
+}
+
+void cbrdma_check_conn_mem(connect_t* conn) {
+    cbrdma_check_mem(g_net_env);
+    cbrdma_check_mem(conn);
+    cbrdma_check_buff_mem(conn, conn->send_meta);
+    cbrdma_check_buff_mem(conn, conn->recv_meta);
+    cbrdma_check_buff_mem(conn, conn->send_buff);
+    cbrdma_check_buff_mem(conn, conn->recv_buff);
+}
+
 int64_t get_time_ns() {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
@@ -251,7 +318,7 @@ void conn_notify_closed(connect_t *conn) {
     if (conn == NULL) {
         return;
     }
-    LOG(INFO, "conn(%lu-%p) notify disconnect", conn->nd, conn);
+    LOG(INFO, "conn(%lu-%p) notify closed", conn->nd, conn);
     conn_close_efd_with_lock(conn);
     if (g_closed_handler != NULL) {
         g_closed_handler(conn->nd, conn->context);
@@ -259,7 +326,7 @@ void conn_notify_closed(connect_t *conn) {
 }
 
 static inline void init_buff(buffer_t* buff, connect_t* conn, int index, int type) {
-    buff->context = (void*) conn;
+    buff->context =  conn->nd;
     buff->index = index;
     list_head_init(&buff->node);
     buff->type = type;
@@ -267,20 +334,19 @@ static inline void init_buff(buffer_t* buff, connect_t* conn, int index, int typ
 }
 
 int reg_meta_data(connect_t *conn, buffer_t* meta) {
-    meta->data = malloc(sizeof(meta_t));
+    meta->data = cbrdma_malloc(sizeof(meta_t));
     if (meta == NULL) {
         return -1;
     }
-    LOG(INFO, "meta malloc:%p, size:%d", meta->data, sizeof(meta_t));
-    memset(meta->data, 0, sizeof(meta_t));
-    meta->context = (void*) conn;
+    LOG(INFO, "conn(%lu-%p) malloc meta data:%p, size:%u", conn->nd, conn, meta->data, sizeof(meta_t));
+    meta->context =  conn->nd;
     meta->mr = ibv_reg_mr(conn->worker->pd, meta->data, sizeof(meta_t), IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
     if (meta->mr == NULL) {
-        free(meta->data);
+        cbrdma_free(meta->data);
         meta->data = NULL;
         return -1;
     }
-    LOG(INFO, "ibv_reg_mr meta malloc:%p, size:%d", meta->data, sizeof(meta_t));
+    LOG(INFO, "conn(%lu-%p) reg meta data:%p, size:%u, mr:%p", conn->nd, conn, meta->data, sizeof(meta_t), meta->mr);
     return 0;
 }
 
@@ -288,7 +354,7 @@ int conn_reg_data_buff(connect_t * conn, uint32_t block_size, uint32_t block_cnt
     void* data_buff    = NULL;
     worker_t *worker   = conn->worker;
 
-    data_buff = malloc(block_size * block_cnt);
+    data_buff = cbrdma_malloc(block_size * block_cnt);
     if (data_buff == NULL) {
         LOG(ERROR, "conn(%lu-%p) malloc recv data failed, errno:%d", conn->nd, conn, errno);
         return -1;
@@ -317,7 +383,7 @@ failed:
             ibv_dereg_mr(buff->mr);
         buff->mr = NULL;
     }
-    free(data_buff);
+    cbrdma_free(data_buff);
     return -1;
 }
 
@@ -347,16 +413,19 @@ int dereg_buffer(connect_t * conn, buffer_t *buff_arr, int len) {
             break;
         }
 
+        LOG(INFO, "conn(%lu-%p) dereg mr buff:%p mr:%p ", conn->nd, conn, buff, buff->mr);
         if (buff->mr != NULL) {
             ret = ibv_dereg_mr(buff->mr);
             if (ret == 0) {
                 buff->mr = NULL;
+                continue;
             }
-            LOG(INFO, "conn(%lu-%p) buff:%p mr:%p ibv_dereg_mr return: %d, errno:%d", conn->nd, conn, buff, buff->mr, ret, errno);
+            LOG(ERROR, "conn(%lu-%p) dereg mr buff:%p mr:%p return: %d, errno:%d", conn->nd, conn, buff, buff->mr, ret, errno);
             break;
         }
     }
     
+    LOG(INFO, "conn(%lu-%p) dereg mr array array:%p len:%d ibv_dereg_mr return: %d, errno:%d", conn->nd, conn, buff_arr, len, ret, errno);
     return ret;
 }
 
@@ -372,18 +441,16 @@ void dereg_all_buffer(connect_t * conn) {
 void release_rdma(connect_t * conn) {
     if (conn->qp != NULL && conn->id != NULL) {
         rdma_destroy_qp(conn->id);
-        LOG(INFO, "conn(%lu-%p) rdma_destroy_qp:%p", conn->nd, conn, conn->id);
+        LOG(INFO, "conn(%lu-%p) destroy qp, cmid:%p", conn->nd, conn, conn->id);
     }
 
     if (conn->id != NULL) {
         rdma_destroy_id(conn->id);
-        LOG(INFO, "conn(%lu-%p) rdma_destroy_id:%p", conn->nd, conn, conn->id);
+        LOG(INFO, "conn(%lu-%p) destroy cmid:%p", conn->nd, conn, conn->id);
     }
 
     conn->id = NULL;
     conn->qp = NULL;
-
-    dereg_all_buffer(conn);
 }
 
 int free_buffer(buffer_t *buff) {
@@ -392,30 +459,30 @@ int free_buffer(buffer_t *buff) {
     }
 
     if (buff->data != NULL)
-        free(buff->data);
+        cbrdma_free(buff->data);
 
     buff->mr   = NULL;
     buff->data = NULL;
-    free(buff);
+    cbrdma_free(buff);
     return 0;
 }
 
 void release_buffer(connect_t * conn) {
+    LOG(INFO, "conn(%lu-%p) free send meta:%p", conn->nd, conn, conn->send_meta);
     free_buffer(conn->send_meta);
     conn->send_meta = NULL;
-    LOG(INFO, "free send_meta:%p", conn);
 
+    LOG(INFO, "conn(%lu-%p) free recv meta:%p", conn->nd, conn, conn->recv_meta);
     free_buffer(conn->recv_meta);
     conn->recv_meta = NULL;
-    LOG(INFO, "free recv_meta:%p", conn);
 
+    LOG(INFO, "conn(%lu-%p) free send buff:%p", conn->nd, conn, conn->send_buff);
     free_buffer(conn->send_buff);
     conn->send_buff = NULL;
-    LOG(INFO, "free send_buff:%p", conn);
 
+    LOG(INFO, "conn(%lu-%p) free recv buff:%p", conn->nd, conn, conn->recv_buff);
     free_buffer(conn->recv_buff);
     conn->recv_buff = NULL;
-    LOG(INFO, "free recv_buff:%p", conn);
 }
 
 int conn_close(worker_t* worker, connect_t* conn) {
@@ -470,6 +537,7 @@ void client_build_reg_recv_buff_cmd(connect_t* conn) {
     meta->cmd    = CMD_REG_RECV_BUFF;
     meta->size   = conn->recv_block_size;
     meta->count  = conn->recv_block_cnt;
+    meta->nd     = conn->nd;
     for (int i = 0; i < meta->count; i++) {
         buffer_t* recv_buff = conn->recv_buff + i;
         meta->addr[i]   =  (uintptr_t)recv_buff->mr->addr;
@@ -479,7 +547,7 @@ void client_build_reg_recv_buff_cmd(connect_t* conn) {
         conn->recv_win_size++;
     }
 
-    LOG(INFO, "reg client recv buffer to size:%u, count:%u, 0 rkey:%u, 0 raddr:%lu", meta->size, meta->count, meta->rkey[0], meta->addr[0]);
+    LOG(INFO, "conn(%lu-%p) reg recv buffer to meta; size:%u, count:%u, 0 rkey:%u, 0 raddr:%lu", conn->nd, conn, meta->size, meta->count, meta->rkey[0], meta->addr[0]);
     return;
 }
 
@@ -502,7 +570,7 @@ int post_recv_meta(connect_t *conn) {
     ret = ibv_post_recv(conn->qp, &wr, &bad_wr);
     if (ret == 0) {
         conn->buff_ref++;
-        conn->recv_meta->state = BUFF_ST_APP_INUSE;
+        conn->recv_meta->state = BUFF_ST_POLLING_INUSE;
     }
     return ret;
 }
@@ -527,7 +595,7 @@ int post_send_meta(connect_t *conn) {
     ret = ibv_post_send(conn->qp, &wr, &bad_wr);
     if (ret == 0) {
         conn->buff_ref++;
-        conn->send_meta->state = BUFF_ST_APP_INUSE;
+        conn->send_meta->state = BUFF_ST_POLLING_INUSE;
     }
     return ret;
 }
@@ -559,6 +627,7 @@ int post_send_data(connect_t *conn, buffer_t *buff, uint32_t len) {
         conn->post_send_cnt++;
         conn->last_auto_seq = conn->recv_ack_cnt;
         conn->last_req_time = get_time_ns();
+        buff->state = BUFF_ST_POLLING_INUSE;
     }
     return ret;
 }

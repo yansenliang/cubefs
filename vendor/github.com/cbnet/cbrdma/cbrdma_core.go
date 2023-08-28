@@ -76,7 +76,6 @@ func (conn *RDMAConn) OnRecvCB(buff []byte, recvLen int, status int) {
 	}
 
 	if status < 0 {
-		C.notify_event(conn.rFd, -1)
 		conn.onDisconnected(conn)
 		return
 	}
@@ -100,7 +99,6 @@ func (conn *RDMAConn) OnSendCB(sendLen int, status int) {
 	}
 
 	if status < 0 {
-		C.notify_event(conn.wFd, -1)
 		conn.onDisconnected(conn)
 		return
 	}
@@ -110,7 +108,7 @@ func (conn *RDMAConn) OnSendCB(sendLen int, status int) {
 }
 
 func (conn *RDMAConn) Init(recvFunc OnRecvFunc, sendFunc OnSendFunc, disconnectedFunc OnDisconnectedFunc, closedFunc OnClosedFunc, ctx unsafe.Pointer) {
-	gLogHandler.Error("conn:(%d-%p) Dial(%p, %p, %p, %p, %p)", conn.connPtr, conn, recvFunc, sendFunc, disconnectedFunc, closedFunc, ctx)
+	gLogHandler.Error("conn:(%d-%p) Init(%p, %p, %p, %p, %p)", conn.connPtr, conn, recvFunc, sendFunc, disconnectedFunc, closedFunc, ctx)
 	conn.ctx = ctx
 	conn.onRecv = recvFunc
 	conn.onSend = sendFunc
@@ -132,7 +130,10 @@ func (conn *RDMAConn) Init(recvFunc OnRecvFunc, sendFunc OnSendFunc, disconnecte
 func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memType int) error {
 	gLogHandler.Error("conn:(%d-%p) Dial(%s, %d, %d, %d, %d)", conn.connPtr, conn, ip, port, recvSize, recvCnt, memType)
 	cIp := C.CString(ip)
-	defer C.free(unsafe.Pointer(cIp))
+	var cAddr [MAX_ADDR_LEN]C.char
+	defer func() {
+		C.free(unsafe.Pointer(cIp))
+	}()
 	ret := C.cbrdma_connect(cIp, C.uint16_t(port), C.uint32_t(recvSize), C.uint32_t(recvCnt), C.int(memType), 10000, unsafe.Pointer(conn), &conn.connPtr)
 	if ret <= 0 {
 		return fmt.Errorf("create connect %s:%d failed", ip, port)
@@ -140,7 +141,18 @@ func (conn *RDMAConn) Dial(ip string, port int, recvSize int, recvCnt int, memTy
 
 	conn.connType = CONN_TYPE_ACTIVE
 	atomic.StoreInt32(&conn.state, CONN_ST_CONNECTED)
-	conn.remoteAddr = RDMAAddr{addr: ip + strconv.Itoa(port - 10000)}
+	conn.remoteAddr.addr = ip + strconv.Itoa(port - 10000)
+
+	C.cbrdma_get_src_addr(conn.connPtr, (*C.char)(&cAddr[0]), MAX_ADDR_LEN)
+	gLogHandler.Error("get src addr:%v", cAddr)
+	buff := make([]byte, MAX_ADDR_LEN)
+	for i := 0; i < MAX_ADDR_LEN && cAddr[i] != 0; i++ {
+		buff[i] = byte(cAddr[i])
+	}
+	conn.localAddr.addr = string(buff)
+
+	C.cbrdma_get_dst_addr(conn.connPtr, (*C.char)(&cAddr[0]), MAX_ADDR_LEN)
+	gLogHandler.Error("get dst addr:%v", cAddr)
 	gConnMap.Store(conn.connPtr, conn)
 	return nil
 }
@@ -177,6 +189,10 @@ func (conn *RDMAConn) Send(buff []byte, length int) (err error) {
 		if value := C.wait_event(conn.wFd); value <= 0 {
 			return fmt.Errorf("send failed")
 		}
+
+		if atomic.LoadInt32(&conn.state) != CONN_ST_CONNECTED {
+			return fmt.Errorf("conn already closed")
+		}
 	}
 	return nil
 }
@@ -190,6 +206,10 @@ func (conn *RDMAConn) Read([]byte) (int, error) {
 		return -1, fmt.Errorf("recv failed")
 	}
 
+	if atomic.LoadInt32(&conn.state) != CONN_ST_CONNECTED {
+		return -1, fmt.Errorf("conn already closed")
+	}
+
 	return 0, nil
 }
 
@@ -199,9 +219,13 @@ func (conn *RDMAConn) GetRecvBuff() ([]byte, int) {
 	}
 
 	conn.mu.RLock()
+	defer conn.mu.RUnlock()
+	if conn.recvMsgList.Len() == 0 {
+		return nil, 0
+	}
+
 	msgElem := conn.recvMsgList.Front()
 	conn.recvMsgList.Remove(msgElem)
-	conn.mu.RUnlock()
 	msg := msgElem.Value.(*RecvMsg)
 	return msg.dataPatr, msg.len
 }
@@ -225,16 +249,30 @@ func (conn *RDMAConn) RemoteAddr() net.Addr {
 
 func (conn *RDMAConn)  SetDeadline(t time.Time) error {
 	gLogHandler.Debug("conn:(%d-%p) SetDeadline(%v)", conn.connPtr, conn, t)
+	if atomic.LoadInt32(&conn.state) != CONN_ST_CONNECTED {
+		return fmt.Errorf("set deadline failer; conn(%d-%p) already closed", conn.connPtr, conn)
+	}
+
+	C.cbrdma_set_send_timeout_us(conn.connPtr, (C.int64_t(t.UnixNano() - time.Now().UnixNano()) / 1000))
+	C.cbrdma_set_recv_timeout_us(conn.connPtr, (C.int64_t(t.UnixNano() - time.Now().UnixNano()) / 1000))
 	return nil
 }
 
 func (conn *RDMAConn) SetReadDeadline(t time.Time) error {
 	gLogHandler.Debug("conn:(%d-%p) SetReadDeadline(%v)", conn.connPtr, conn, t)
+	if atomic.LoadInt32(&conn.state) != CONN_ST_CONNECTED {
+		return fmt.Errorf("set deadline failer; conn(%d-%p) already closed", conn.connPtr, conn)
+	}
+	C.cbrdma_set_recv_timeout_us(conn.connPtr, (C.int64_t(t.UnixNano() - time.Now().UnixNano()) / 1000))
 	return nil
 }
 
 func (conn *RDMAConn) SetWriteDeadline(t time.Time) error {
 	gLogHandler.Debug("conn:(%d-%p) SetWriteDeadline(%v)", conn.connPtr, conn, t)
+	if atomic.LoadInt32(&conn.state) != CONN_ST_CONNECTED {
+		return fmt.Errorf("set deadline failer; conn(%d-%p) already closed", conn.connPtr, conn)
+	}
+	C.cbrdma_set_send_timeout_us(conn.connPtr, (C.int64_t(t.UnixNano() - time.Now().UnixNano()) / 1000))
 	return nil
 }
 
@@ -246,17 +284,22 @@ func (conn *RDMAConn) Close() error {
 		return nil
 	}
 
+	atomic.StoreInt32(&conn.state, CONN_ST_CLOSE)
+
 	if conn.rFd > 0 {
+		C.notify_event(conn.rFd, 0)
 		C.close(conn.rFd)
 		conn.rFd = -1
 	}
 
 	if conn.wFd > 0 {
+		C.notify_event(conn.wFd, 0)
 		C.close(conn.wFd)
 		conn.wFd = -1
 	}
 
 	conn.mu.Lock()
+	defer conn.mu.Unlock()
 	if conn.recvMsgList != nil {
 		for elem := conn.recvMsgList.Front(); elem != nil; elem = elem.Next() {
 			msg := elem.Value.(*RecvMsg)
@@ -264,7 +307,6 @@ func (conn *RDMAConn) Close() error {
 		}
 		conn.recvMsgList.Init()
 	}
-	conn.mu.Unlock()
 
 	C.cbrdma_close(conn.connPtr)
 	return nil

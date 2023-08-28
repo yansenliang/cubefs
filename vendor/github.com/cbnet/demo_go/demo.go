@@ -288,7 +288,7 @@ func startSyncClient() {
 			if err == cbrdma.RetryErr {
 				continue
 			}
-			logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, c.sendCnt, c.recvCnt)
+			logger.Info("conn(%d-%p) exit; send count:%d recv count:%d", conn.GetNd(), conn, conn.sendCnt, conn.recvCnt)
 			break
 		}
 		conn.sendCnt++

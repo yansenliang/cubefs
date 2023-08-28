@@ -6,6 +6,7 @@ import (
     "container/list"
     "time"
     "unsafe"
+    "reflect"
 )
 import "sync"
 import "fmt"
@@ -17,10 +18,11 @@ type OnClosedFunc func(conn *RDMAConn)
 type OnAcceptFunc func(server *RDMAServer) (conn *RDMAConn)
 
 const (
+    MAX_ADDR_LEN = 64
+)
+const (
     CONN_TYPE_ACTIVE = (1 << iota)
 )
-
-var RetryErr = fmt.Errorf("Retry")
 
 const (
     CONN_ST_CLOSE     = 0
@@ -28,21 +30,10 @@ const (
 )
 
 const (
-    SEND_BUFFER_ST_INVALID = -1
-    SEND_BUFFER_ST_FREE    = 0
-    SEND_BUFFER_ST_HOLD    = 1
-    SEND_BUFFER_ST_SENDING = 2
-)
-
-const (
-    RECV_BUFFER_ST_INVALID = -1
-    RECV_BUFFER_ST_FREE    = 0
-    RECV_BUFFER_ST_HOLD    = 1
-)
-
-const (
     RDMA_NetWorker_STR  = "rdma"
 )
+
+var RetryErr = fmt.Errorf("Retry")
 
 var pollcnt uint64 = 0
 
@@ -125,8 +116,14 @@ var gConnMap    sync.Map
 //var gConnMap    map[C.uint64_t]unsafe.Pointer
 
 func CbuffToSlice(ptr unsafe.Pointer, length int) []byte {
-    slice := (*[1 << 30]byte)(ptr)[:length:length]
-    return slice
+    var buffer []byte
+
+    hdr := (*reflect.SliceHeader)(unsafe.Pointer(&buffer))
+    hdr.Data = uintptr(ptr)
+    hdr.Len = int(length)
+    hdr.Cap = int(length)
+
+    return buffer
 }
 
 func (r *RDMAAddr) Network() string {

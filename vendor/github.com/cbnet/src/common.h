@@ -26,18 +26,12 @@
 #define ONE_SEC_IN_NS               1000000000L
 #define CLOSE_TIME_OUT              10 * ONE_SEC_IN_NS
 
+#define CBRDMA_MEM_MAGIC        0xFEFEFEFEFEFEFEFE
+
 #define set_conn_state(conn, t) do {\
         uint8_t old = conn->state;                                        \
         conn->state = t;                                                  \
-        LOG(INFO, "conn[%d] state: %s-->%s", conn->nd, conn_state_names[old], conn_state_names[t]);\
-    }while(0)
-
-#define conn_add_ref(conn) do {\
-        pthread_spin_lock(&conn->spin_lock);    \
-        if (conn->ref > 0) {                    \
-            conn->ref++;                        \
-        };                                      \
-        pthread_spin_unlock(&conn->spin_lock);    \
+        LOG(INFO, "conn(%lu-%p) state: %s-->%s", conn->nd, conn, conn_state_names[old], conn_state_names[t]);\
     }while(0)
 
 #define conn_del_ref(conn) do {\
@@ -171,6 +165,7 @@ typedef struct meta_message_st {
     uint32_t cmd;
     uint32_t size;
     uint32_t count;
+    uint64_t nd;
     uint32_t rkey[MAX_PORT_DEPTH_SIZE];
     uint64_t addr[MAX_PORT_DEPTH_SIZE];
 } meta_t;
@@ -196,7 +191,7 @@ typedef struct buffer_st {
     uint32_t       peer_rkey;
     uint64_t       peer_addr;
     struct ibv_mr *mr;
-    void          *context;
+    uint64_t       context;
 
     uint8_t         type;           // 最后一个block设置为user 信息，oncom 需要处理
     uint8_t         worker_id;
@@ -208,6 +203,7 @@ typedef struct buffer_st {
 
 typedef struct conn_context_t {
     uint64_t        nd;
+    uint64_t        peer_nd;
     void*           context;
 
     struct rdma_cm_id *id;
@@ -263,6 +259,7 @@ typedef struct conn_context_t {
     uint16_t      send_tail_index;          //入队
     uint8_t       pad2[2];
     int64_t       send_time;               //内部消息不进行更新， free list出队计时， cq消息回复截止
+    int64_t       send_timeout_ns;
     uint16_t      peer_ack_cnt;
 
     uint64_t      send_cnt;               //出队free list时++，填充到header seq
@@ -286,6 +283,21 @@ void (*log_handler_cb) (int level, char* line, int len);
         }\
     } while (0)
 
+typedef struct cbrdma_mem_header_st {
+    uint64_t magic;
+    uint32_t len;
+    uint32_t pad;
+}cbrdma_mem_header;
+
+typedef struct cbrdma_mem_tail_st {
+    uint64_t magic;
+    uint32_t len;
+    uint32_t pad;
+}cbrdma_mem_tail;
+
+void* cbrdma_malloc(uint32_t size);
+void cbrdma_free(void* ptr);
+void cbrdma_check_conn_mem(connect_t* conn);
 
 int64_t get_time_ns();
 void deal_log(int level, const char* func, int line, const char* fmt, ...);
@@ -305,6 +317,7 @@ void conn_notify_closed(connect_t *conn);
 int reg_meta_data(connect_t *conn, buffer_t* meta_ptr);
 int conn_reg_data_buff(connect_t *conn, uint32_t blcok_size, uint32_t block_cnt, int mem_type, buffer_t * buff);
 int conn_bind_remote_recv_key(connect_t *conn, meta_t* rmeta);
+void dereg_all_buffer(connect_t *conn);
 void release_rdma(connect_t * conn);
 void release_buffer(connect_t * conn);
 

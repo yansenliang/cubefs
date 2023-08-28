@@ -8,8 +8,9 @@
 
 extern net_env_t        *g_net_env;
 
-void* _cbrdma_get_send_buff(connect_t *conn, int32_t size, int64_t dead_line, int32_t *ret_size) {
+void* _cbrdma_get_send_buff(connect_t *conn, int32_t size, int64_t timeout_us, int32_t *ret_size) {
     int64_t now = get_time_ns();
+    int64_t dead_line = 0;
     void*   send_data = NULL;
     buffer_t *buff = NULL;
     int start = 0;
@@ -26,6 +27,9 @@ void* _cbrdma_get_send_buff(connect_t *conn, int32_t size, int64_t dead_line, in
         *ret_size = -1;
         return NULL;
     }
+
+    dead_line = timeout_us == -1 ? timeout_us : get_time_ns() + timeout_us * 1000;
+    dead_line = dead_line == 0 ? now + conn->send_timeout_ns : dead_line;
 
     while (1) {
         //预留一个槽位
@@ -112,7 +116,6 @@ void* cbrdma_get_send_buff(uint64_t nd, int32_t size, int64_t timeout_us, int32_
     worker_t *worker = NULL;
     connect_t *conn  = NULL;
     void* data_ptr = NULL;
-    int64_t dead_line = 0;
     int64_t now = get_time_ns();
     get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
     if (conn == NULL) {
@@ -122,9 +125,7 @@ void* cbrdma_get_send_buff(uint64_t nd, int32_t size, int64_t timeout_us, int32_
         return NULL;
     }
 
-    dead_line = timeout_us == -1 ? timeout_us : get_time_ns() + timeout_us * 1000;
-
-    data_ptr = _cbrdma_get_send_buff(conn, size, dead_line, ret_size);
+    data_ptr = _cbrdma_get_send_buff(conn, size, timeout_us, ret_size);
     conn_del_ref(conn);
 
     return data_ptr;
@@ -255,6 +256,7 @@ int cbrdma_send(uint64_t nd, void* buff, uint32_t len) {
         return -1;
     }
 
+    cbrdma_check_conn_mem(conn);
     ret = _cbrdma_send(worker, conn, buff, len);
     conn_del_ref(conn);
     return ret;
@@ -347,7 +349,7 @@ static int _cbrdma_release_recv_data(connect_t *conn, void* data_ptr) {
     pthread_spin_lock(&conn->spin_lock);
     //遍历recv buff 数组
     for (int i = 0; i < count; i++) {
-        buff = conn->recv_buff + (offset + i);
+        buff = conn->recv_buff + ((offset + i)  % conn->recv_block_cnt);
         buff->state = BUFF_ST_FREE;
         conn->buff_ref--;
         memset(buff->data, 0, conn->recv_block_size);
@@ -405,6 +407,7 @@ int cbrdma_release_recv_buff(uint64_t nd, void *data_ptr) {
         LOG(ERROR,"conn(%lu) already closed", nd);
         return -1;
     }
+    cbrdma_check_conn_mem(conn);
 
     ret = _cbrdma_release_recv_data(conn, data_ptr);
     conn_del_ref(conn);
@@ -413,14 +416,17 @@ int cbrdma_release_recv_buff(uint64_t nd, void *data_ptr) {
 
 void conn_deal_ctl_cmd(connect_t *conn) {
     meta_t *meta = (void*) conn->recv_meta->data;
-    LOG(INFO, " conn:%p deal cmd:%d ", conn, meta->cmd);
+    LOG(INFO, " conn(%lu-%p) deal cmd:%d ", conn->nd, conn, meta->cmd);
     switch (meta->cmd) {
         case CMD_REG_RECV_BUFF:
             //reg send buff
-            conn->send_buff = malloc(sizeof(buffer_t) * meta->count);
+            conn->peer_nd   = meta->nd;
+            conn->send_buff = cbrdma_malloc(sizeof(buffer_t) * meta->count);
             if (conn->send_buff == NULL) {
                 goto failed;
             }
+
+            LOG(INFO, " conn(%lu-%p) malloc send buff:%p, size:%u, count:%u ", conn->nd, conn, conn->send_buff, meta->size, meta->count);
             if(conn_reg_data_buff(conn, meta->size, meta->count, conn->mem_type, conn->send_buff) != 0) {
                 goto failed;
             }
@@ -485,6 +491,7 @@ int process_send_data(struct ibv_wc *wc, complete_msg_t *msg, connect_t *conn, b
     }
 
     pthread_spin_lock(&conn->spin_lock);
+    buff->type = 0;
     if (conn->state != CONN_ST_CONNECTED) {
         pthread_spin_unlock(&conn->spin_lock);
         return 0;
@@ -511,17 +518,28 @@ int on_completion(struct ibv_wc *wc_arr, complete_msg_t *msg_arr, int len, int64
         struct ibv_wc *wc = wc_arr + i;
         complete_msg_t *msg = msg_arr + msg_index;
         buffer_t *buff = (buffer_t*) wc->wr_id;
-        connect_t* conn  = buff->context;
-        worker_t* worker = conn->worker;
+        connect_t* conn  = NULL;
+        worker_t* worker = NULL;
+
+        _get_worker_and_connect_by_nd(buff->context, &worker, &conn, 0);
+        if (conn == NULL) {
+            continue;
+        }
 
         pthread_spin_lock(&conn->spin_lock);
         if (conn->auto_ack == buff) {
             conn->auto_ack = NULL;
         }
 
-        if (buff->state == BUFF_ST_APP_INUSE) {
+        if (buff->state != BUFF_ST_FREE) {
             conn->buff_ref--;
             buff->state = BUFF_ST_FREE;
+        }
+
+        if (conn->state >= CONN_ST_ERROR) {
+            //already closed, no need deal
+            pthread_spin_unlock(&conn->spin_lock);
+            continue;
         }
         pthread_spin_unlock(&conn->spin_lock);
 
@@ -565,6 +583,7 @@ void process_close_list(worker_t *worker) {
     list_link_t retry_list;
     list_link_t task_list;
     int64_t now = 0;
+    int print_log = 0;
 
     list_head_init(&retry_list);
     list_head_init(&task_list);
@@ -575,14 +594,23 @@ void process_close_list(worker_t *worker) {
     list_head_init(&worker->close_list);
     pthread_spin_unlock(&worker->lock);
 
+    if (!list_is_empty(&task_list)) {
+        print_log = 1;
+    }
+
+    if (print_log) {
+        LOG(ERROR, "process close list");
+    }
+
     while (!list_is_empty(&task_list)) {
         connect_t *conn = list_head(&task_list, connect_t, close_node);
         if (conn != NULL) {
             pthread_spin_lock(&conn->spin_lock);
+            LOG(ERROR, "conn(%lu-%p) begin close", conn->nd, conn);
             list_del(&conn->close_node);
             if (!conn->is_app_closed || conn->ref || conn->buff_ref || conn->state != CONN_ST_DISCONNECTED) {
                 if (conn->state == CONN_ST_DISCONNECTED) {
-                    release_rdma(conn);
+                    dereg_all_buffer(conn);
                 }
                 //wait next
                 list_add_tail(&retry_list, &conn->close_node);
@@ -596,12 +624,25 @@ void process_close_list(worker_t *worker) {
                 set_conn_state(conn, CONN_ST_CLOSED);
                 pthread_spin_unlock(&conn->spin_lock);
                 del_conn_from_worker(conn->nd, conn->worker, conn->worker->closing_nd_map);
+
+                pthread_spin_lock(&worker->lock);
+                pthread_spin_lock(&conn->spin_lock);
+                if (!list_is_empty(&conn->worker_node)) {
+                    list_del(&conn->worker_node);
+                }
+                pthread_spin_unlock(&conn->spin_lock);
+                pthread_spin_unlock(&worker->lock);
+
                 release_rdma(conn);
                 release_buffer(conn);
                 conn_notify_closed(conn);
-                free(conn);
+                cbrdma_free(conn);
             }
         }
+    }
+
+    if (print_log) {
+        LOG(ERROR, "process close list finished");
     }
 
     pthread_spin_lock(&worker->lock);
@@ -695,7 +736,6 @@ int process_recv_data(worker_t *worker, complete_msg_t* msgs, int len, int64_t n
         recv_dead_line = -1;
         conn = list_extract_head(&task_list, connect_t, worker_node);
         pthread_spin_lock(&conn->spin_lock);
-
         if (now - conn->last_notify > 1000 && conn->efd > 0) {
             write(conn->efd, &notify_value, 8);
             conn->last_notify = now;

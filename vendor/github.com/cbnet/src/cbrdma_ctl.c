@@ -18,6 +18,8 @@
 #include <sys/eventfd.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/in.h>
+
 
 #define MIN_CQE_NUM                             1024
 #define WQ_DEPTH            8
@@ -197,12 +199,11 @@ int cbrdma_init(cbrdma_config_t * config) {
     g_log_handler   = config->log_handler_func;
 
     int len = sizeof(net_env_t) + config->worker_num * sizeof(worker_t);
-    g_net_env = (net_env_t*) malloc(len);
+    g_net_env = (net_env_t*) cbrdma_malloc(len);
     if (g_net_env == NULL) {
         LOG(ERROR, "init env failed: no enouth memory");
         goto error;
     }
-    memset(g_net_env, 0, len);
     g_net_env->worker_num = config->worker_num;
     g_net_env->log_level  = config->log_level;
     list_head_init(&g_net_env->server_list);
@@ -226,11 +227,6 @@ int cbrdma_init(cbrdma_config_t * config) {
     }
     LOG(INFO, "get_rdma_dev_name_by_ip(%s):%s", config->str_local_ip, rdma_dev_name);
 
-/*
-    if (g_net_env->ib_dev_cnt == 1) {
-        g_net_env->ctx = g_net_env->all_devs[0];
-    }
-*/
     struct ibv_context* tmp;
     for (int i = 0; i < g_net_env->ib_dev_cnt; i++) {
         tmp = g_net_env->all_devs[i];
@@ -248,7 +244,6 @@ int cbrdma_init(cbrdma_config_t * config) {
     g_net_env->event_channel = rdma_create_event_channel();
     pthread_create(&g_net_env->event_loop_thread, NULL, net_event_loop, g_net_env);
 
-    memset(g_net_env->worker, 0, sizeof(worker_t) * g_net_env->worker_num);
     for (int i = 0; i < g_net_env->worker_num; i++) {
         LOG(INFO, "init_worker(%d)", i);
         g_net_env->worker[i].id = i;
@@ -323,7 +318,10 @@ static int add_conn_to_server(connect_t * conn, server_t * server) {
 
 static int del_conn_from_server(connect_t * conn, server_t * server) {
     int ret = 0;
-    conn->server = NULL;
+    if (server == NULL) {
+        return 0;
+    }
+
     pthread_spin_lock(&server->conn_list_lock);
     list_del(&conn->server_node);
     server->conn_cnt--;
@@ -345,7 +343,7 @@ int cbrdma_listen(const char * ip, uint16_t port, uint32_t recv_block_size, uint
 
     LOG(INFO, "cbrdma_listen(%s, %d, %d, %d, %d, accept_cb, %p, nd)", ip, port, recv_block_size, recv_block_cnt, mem_type, server_context);
     int ret = 0;
-    server_t* server = (server_t*) malloc(sizeof(server_t));
+    server_t* server = (server_t*) cbrdma_malloc(sizeof(server_t));
     if (server == NULL) {
         LOG(ERROR, "create server failed: malloc failed\n");
         return 0;
@@ -425,7 +423,7 @@ static int close_server(uint64_t listen_nd) {
     if (p->listen_id != 0) {
         rdma_destroy_id(p->listen_id);
     }
-    free(p);
+    cbrdma_free(p);
     return 1;
 }
 
@@ -457,13 +455,12 @@ static int reg_connect_mem(connect_t *conn, uint32_t block_size, uint32_t block_
 
 static connect_t* init_connection(uint64_t nd, uint32_t recv_block_cnt) {
     int ret = 0;
-    connect_t *conn = (connect_t*) malloc(sizeof(connect_t));
+    connect_t *conn = (connect_t*) cbrdma_malloc(sizeof(connect_t));
     if (conn == NULL) {
         LOG(ERROR, "create conn mem obj failed");
         return NULL;
     }
     LOG(INFO, "malloc connect_t:%p", conn);
-    memset(conn, 0, sizeof(connect_t));
 
     conn->nd = nd;
     conn->worker = get_worker_by_nd(conn->nd);
@@ -472,7 +469,7 @@ static connect_t* init_connection(uint64_t nd, uint32_t recv_block_cnt) {
     ret = pthread_spin_init(&(conn->spin_lock), PTHREAD_PROCESS_SHARED);
     if (ret != 0) {
         LOG(ERROR, "init conn spin lock failed, err:%d", ret);
-        free(conn);
+        cbrdma_free(conn);
         return 0;
     }
 
@@ -487,34 +484,33 @@ static connect_t* init_connection(uint64_t nd, uint32_t recv_block_cnt) {
     list_head_init(&conn->send_free_list);
     list_head_init(&conn->send_wait_free_list);
 
-    conn->recv_meta = (buffer_t *)malloc(sizeof(buffer_t));
+    conn->recv_meta = (buffer_t *)cbrdma_malloc(sizeof(buffer_t));
     if (conn->recv_meta == NULL) {
         LOG(ERROR, "no enouth memory\n");
         goto err;
     }
-    LOG(INFO, "malloc recv_meta:%p", conn->recv_meta);
-    memset(conn->recv_meta, 0, sizeof(buffer_t));
+    LOG(INFO, "conn(%lu-%p) malloc recv_meta:%p", conn->nd, conn, conn->recv_meta);
 
-    conn->send_meta = (buffer_t *)malloc(sizeof(buffer_t));
+    conn->send_meta = (buffer_t *)cbrdma_malloc(sizeof(buffer_t));
     if (conn->send_meta == NULL) {
         LOG(ERROR, "no enouth memory\n");
         goto err;
     }
-    LOG(INFO, "malloc send_meta:%p", conn->send_meta);
-    memset(conn->send_meta, 0, sizeof(buffer_t));
+    LOG(INFO, "conn(%lu-%p) malloc send_meta:%p", conn->nd, conn, conn->send_meta);
 
-    conn->recv_buff = (buffer_t *)malloc(sizeof(buffer_t) * recv_block_cnt);
+    conn->recv_buff = (buffer_t *)cbrdma_malloc(sizeof(buffer_t) * recv_block_cnt);
     if (conn->recv_buff == NULL) {
         LOG(ERROR, "no enouth memory\n");
         goto err;
     }
-    LOG(INFO, "malloc recv_buff:%p", conn->recv_buff);
-    memset(conn->recv_buff, 0, sizeof(buffer_t) * recv_block_cnt);
+    LOG(INFO, "conn(%lu-%p) malloc recv_buff:%p, count:%u", conn->nd, conn, conn->recv_buff, recv_block_cnt);
+
     conn->recv_timeout_ns = 2 * ONE_SEC_IN_NS;
+    conn->recv_cur = NULL;
     return conn;
 err:
     release_buffer(conn);
-    free(conn);
+    cbrdma_free(conn);
     return NULL;
 }
 
@@ -563,12 +559,12 @@ int cbrdma_connect(const char* ip, uint16_t port, uint32_t recv_block_size, uint
         goto err_free_resource;
     }
 
-    ret = rdma_create_id(g_net_env->event_channel, &conn->id, conn, RDMA_PS_TCP);
+    ret = rdma_create_id(g_net_env->event_channel, &conn->id, (void*)(conn->nd), RDMA_PS_TCP);
     if (ret != 0) {
         LOG(ERROR, "rdma create id failed, err:%d", errno);
         goto err_free_resource;
     }
-    LOG(INFO, "rdma_create_id(%p) for connect", conn->id);
+    LOG(INFO, "conn(%lu-%p) create cmid:%p", conn->nd, conn, conn->id);
 
     ret = rdma_resolve_addr(conn->id, NULL, (struct sockaddr*)&server_sockaddr, TIMEOUT_IN_MS);
     if (ret != 0) {
@@ -590,7 +586,7 @@ int cbrdma_connect(const char* ip, uint16_t port, uint32_t recv_block_size, uint
         if (state == CONN_ST_CONNECTING) {
             now = get_time_ns();
             if ((now - start) > deadline) {
-                //goto err_timeout;
+                goto err_timeout;
             }
             if (conn->efd > 0 && conn->worker->w_pid != pthread_self()) {
                 read(conn->efd, &notify_value, 8);
@@ -603,6 +599,7 @@ int cbrdma_connect(const char* ip, uint16_t port, uint32_t recv_block_size, uint
     }
 
     return 1;
+
 err_free_id:
     if (rdma_destroy_id(conn->id)) {
         LOG(ERROR, "Failed to destroy rdma id cleanly, %d \n", -errno);
@@ -610,7 +607,7 @@ err_free_id:
     LOG(INFO, "rdma_destroy_id(%p) for connect", conn->id);
 err_free_resource:
     release_buffer(conn);
-    free(conn);
+    cbrdma_free(conn);
     conn = NULL;
     return 0;
 
@@ -630,29 +627,42 @@ static void build_qp_attr(struct ibv_cq *cq, struct ibv_qp_init_attr *qp_attr) {
     qp_attr->cap.max_recv_wr = WQ_DEPTH;
     qp_attr->cap.max_send_sge = WQ_SG_DEPTH;
     qp_attr->cap.max_recv_sge = WQ_SG_DEPTH;
-    LOG(INFO, "qp attr: max_send_wr/max_recv_wr:%d, max_send_sge/max_recv_sge:%d", WQ_DEPTH, WQ_SG_DEPTH);
 }
 
 
 static void on_addr_resolved(struct rdma_cm_id *id) {
     LOG(INFO, "on_addr_resolved:%p", id);
     int ret = 0;
-    connect_t *conn = (connect_t*) id->context;
-    ret = rdma_resolve_route(id, TIMEOUT_IN_MS);
-    if (ret != 0) {
-        LOG(ERROR, "active conn:%p resolve failed, errno:%d, call on_disconnected(%p)", conn, errno, conn->id);
-        disconnect(conn->nd);
+    connect_t *conn = NULL;
+    worker_t  *worker = NULL;
+    _get_worker_and_connect_by_nd((uintptr_t) id->context, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL)  {
+        //already closed
         return;
     }
 
-    LOG(INFO, "active conn:%p conn prepared", conn);
+    ret = rdma_resolve_route(id, TIMEOUT_IN_MS);
+    if (ret != 0) {
+        LOG(ERROR, "conn(%lu-%p) resolve failed, errno:%d, call on_disconnected(%p)", conn->nd, conn, errno, conn->id);
+        disconnect(conn->nd);
+        conn_del_ref(conn);
+        return;
+    }
+
+    LOG(INFO, "conn(%lu-%p) addr resolved", conn->nd, conn);
+    conn_del_ref(conn);
     return;
 }
 
 static void on_route_resolved(struct rdma_cm_id *conn_id) {
     LOG(INFO, "on_route_resolved:%p", conn_id);
-    connect_t *conn = (connect_t*) conn_id->context;
-    assert(conn->id == conn_id);
+    connect_t *conn = NULL;
+    worker_t  *worker = NULL;
+    _get_worker_and_connect_by_nd((uintptr_t) conn_id->context, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL)  {
+        //already closed
+        return;
+    }
 
     struct ibv_qp_init_attr qp_attr;
     build_qp_attr(conn->worker->cq, &qp_attr);
@@ -661,6 +671,7 @@ static void on_route_resolved(struct rdma_cm_id *conn_id) {
     if (ret != 0) {
         LOG(ERROR, "rdma rdma create qp failed, err:%d, call on_disconnected(%p)", errno, conn->id);
         disconnect(conn->nd);
+        conn_del_ref(conn);
         return;
     }
     conn->qp = conn->id->qp;
@@ -677,44 +688,72 @@ static void on_route_resolved(struct rdma_cm_id *conn_id) {
         LOG(INFO, "Failed to connect to remote host , errno: %d, call on_disconnected(%p)", -errno, conn->id);
         disconnect(conn->nd);
     }
-    LOG(INFO, "rdma_connect:%p", conn_id);
+    LOG(INFO, "conn(%lu-%p) rdma connect, cmid:%p", conn->nd, conn, conn_id);
+    conn_del_ref(conn);
 }
 
 static void on_connected(struct rdma_cm_id *id) {
-    connect_t* conn = (connect_t*) id->context;
+    connect_t *conn = NULL;
+    worker_t  *worker = NULL;
+    _get_worker_and_connect_by_nd((uintptr_t) id->context, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL)  {
+        //already closed
+        return;
+    }
 
     pthread_spin_lock(&conn->spin_lock);
+    if (conn->state >= CONN_ST_ERROR) {
+        pthread_spin_unlock(&conn->spin_lock);
+
+        LOG(ERROR, "conn(%lu-%p) on_connected, already closed, do nothing", conn->nd, conn);
+        conn_del_ref(conn);
+        return;
+    }
     post_send_meta(conn);
     pthread_spin_unlock(&conn->spin_lock);
 
-    LOG(INFO, "on_connected:%s conn:%p conn finished", (conn->nd | CONN_ACTIVE_BIT) == CONN_ACTIVE_BIT ? "accept" : "active", conn);
+    LOG(INFO, "conn(%lu-%p) on_connected; conn finished", conn->nd, conn);
+    conn_del_ref(conn);
     return;
 }
 
 static void on_disconnected(struct rdma_cm_id* id) {
-    connect_t *conn = (connect_t*) id->context;
+    connect_t *conn = NULL;
+    worker_t  *worker = NULL;
+    server_t  *server = NULL;
     int is_onclose = 0;
 
-    LOG(INFO, "on_disconnected:%s conn:%p close begin", (conn->nd | CONN_ACTIVE_BIT) == CONN_ACTIVE_BIT ? "accept" : "active", conn);
-    worker_t * worker = conn->worker;
+    _get_worker_and_connect_by_nd((uintptr_t) id->context, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL)  {
+        //already closed
+        return;
+    }
+
+    LOG(INFO, "conn(%lu-%p) proccess disconnected event, close begin", conn->nd, conn);
     pthread_spin_lock(&worker->lock);
     pthread_spin_lock(&conn->spin_lock);
 
-    conn->ref++;
-
-    if (conn->state <= CONN_ST_CLOSING) {
+    if (conn->is_app_closed == 0) {
         is_onclose = 1;
     }
 
     if (conn->close_start == 0) {
         conn->close_start = get_time_ns();
+    }
+
+    server = conn->server;
+    conn->server = NULL;
+
+    if (list_is_empty(&conn->close_node)) {
         list_add_tail(&worker->close_list, &conn->close_node);
-        LOG(INFO, "add to close_task_list:%p", conn);
+        LOG(INFO, "conn(%lu-%p) add to close_task_list", conn->nd, conn);
     }
 
     set_conn_state(conn, CONN_ST_DISCONNECTED);
     pthread_spin_unlock(&conn->spin_lock);
     pthread_spin_unlock(&worker->lock);
+
+    del_conn_from_server(conn, server);
 
     if (is_onclose) {
         conn_notify_disconnect(conn);
@@ -748,18 +787,16 @@ void on_accept(struct rdma_cm_id* listen_id, struct rdma_cm_id* id) {
     build_qp_attr(conn->worker->cq, &qp_attr);
     ret = rdma_create_qp(id, conn->worker->pd, &qp_attr);
     if (ret != 0) {
-        LOG(ERROR, "accept conn:%p, create qp failed, errno:%d", conn, errno);
+        LOG(ERROR, "conn(%lu-%p) create qp failed, errno:%d", conn->nd, conn, errno);
         rdma_reject(id, NULL, 0);
         goto err;
     }
 
-    id->context = conn;
+    id->context = (void*)conn->nd;
     conn->qp = id->qp;
-    LOG(INFO, "rdma_create_qp:%p", conn->qp);
-    list_add_tail(&server->conn_list, &conn->server_node);
-    server->conn_cnt++;
+    LOG(INFO, "conn(%lu-%p) rdma_create_qp:%p", conn->nd, conn, conn->qp);
     post_recv_meta(conn);
-    LOG(INFO, "accept conn:%p, post recv", conn);
+    LOG(INFO, "conn(%lu-%p) post recv", conn->nd, conn);
 
     struct rdma_conn_param  cm_params;
     memset(&cm_params, 0, sizeof(cm_params));
@@ -769,7 +806,7 @@ void on_accept(struct rdma_cm_id* listen_id, struct rdma_cm_id* id) {
         rdma_reject(id, NULL, 0);
         goto err1;
     }
-    LOG(INFO, "rdma_accept(%p)", id);
+    LOG(INFO, "conn(%lu-%p) rdma_accept cmid:%p", conn->nd, conn, id);
 
     add_conn_to_server(conn, server);
     add_conn_to_worker(conn, conn->worker, conn->worker->nd_map);
@@ -780,7 +817,7 @@ err1:
     LOG(INFO, "rdma_destroy_qp:%p", conn->id);
 err:
     release_buffer(conn);
-    free(conn);
+    cbrdma_free(conn);
     return;
 }
 
@@ -793,6 +830,26 @@ void cbrdma_set_user_context(uint64_t nd, void * user_context) {
         return;
     }
     conn->context = user_context;
+    conn_del_ref(conn);
+    return;
+}
+
+void cbrdma_set_send_timeout_us(uint64_t nd, int64_t timeout_us) {
+    LOG(INFO, "cbrdma_set_send_timeout_us(%lu, %ld)", nd, timeout_us);
+    worker_t *worker = NULL;
+    connect_t * conn = NULL;
+    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL) {
+        return;
+    }
+    pthread_spin_lock(&conn->spin_lock);
+    if (timeout_us > 0) {
+        conn->send_timeout_ns = timeout_us * 1000;
+    } else {
+        conn->send_timeout_ns = -1;
+    }
+
+    pthread_spin_unlock(&conn->spin_lock);
     conn_del_ref(conn);
     return;
 }
@@ -813,6 +870,74 @@ void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us) {
     }
 
     pthread_spin_unlock(&conn->spin_lock);
+    conn_del_ref(conn);
+    return;
+}
+
+static void get_addr_by_scokaddr(struct sockaddr* addr, char* str_addr, int len) {
+    struct sockaddr_in* addr_in = NULL;
+    char ip[INET6_ADDRSTRLEN] = {0};
+    struct sockaddr_in6* addr_in6 = NULL;
+    if (addr == NULL) {
+        return;
+    }
+
+    switch (addr->sa_family) {
+        case AF_INET6:
+            addr_in6 = (struct sockaddr_in6*)addr;
+            inet_ntop(AF_INET6, &(addr_in6->sin6_addr), ip, INET6_ADDRSTRLEN);
+            snprintf(str_addr, len - 1, "%s:%d", ip,  ntohs(addr_in6->sin6_port));
+            break;
+        case AF_INET:
+            addr_in = (struct sockaddr_in*)addr;
+            snprintf(str_addr, len - 1, "%s:%d", inet_ntoa(addr_in->sin_addr),  ntohs(addr_in->sin_port));
+            break;
+        default:
+            LOG(ERROR, "unkonwn addr type:%p, %d", addr, addr->sa_family);
+            break;
+    }
+
+    return;
+}
+
+void cbrdma_get_src_addr(uint64_t nd, char* src_addr, int len) {
+    LOG(INFO, "cbrdma_get_src_addr(%lu, %p, %d)", nd, src_addr, len);
+    worker_t *worker = NULL;
+    connect_t * conn = NULL;
+    struct sockaddr * addr = NULL;
+
+    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL) {
+        return;
+    }
+
+    addr = rdma_get_local_addr(conn->id);
+    if (addr != NULL) {
+
+    }
+
+    get_addr_by_scokaddr(addr, src_addr, len);
+    conn_del_ref(conn);
+    return;
+}
+
+void cbrdma_get_dst_addr(uint64_t nd, char* dst_addr, int len) {
+    LOG(INFO, "cbrdma_get_dst_addr(%lu, %p, %d)", nd, dst_addr, len);
+    worker_t *worker = NULL;
+    connect_t * conn = NULL;
+    struct sockaddr * addr = NULL;
+
+    get_worker_and_connect_by_nd(nd, &worker, &conn, GET_CONN_WIT_REF);
+    if (conn == NULL) {
+        return;
+    }
+
+    addr = rdma_get_peer_addr(conn->id);
+    if (addr != NULL) {
+
+    }
+
+    get_addr_by_scokaddr(addr, dst_addr, len);
     conn_del_ref(conn);
     return;
 }

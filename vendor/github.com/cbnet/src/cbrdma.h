@@ -114,7 +114,13 @@ extern "C" {
     //在用户服务端接受连接时，将用户上下文跟nd关联起来
     void cbrdma_set_user_context(uint64_t nd, void * user_context);
 
+    void cbrdma_set_send_timeout_us(uint64_t nd, int64_t timeout_us);
+
     void cbrdma_set_recv_timeout_us(uint64_t nd, int64_t timeout_us);
+
+    void cbrdma_get_src_addr(uint64_t nd, char* src_addr, int len);
+
+    void cbrdma_get_dst_addr(uint64_t nd, char* dst_addr, int len);
 
     void cbrdma_close(uint64_t nd);
 
