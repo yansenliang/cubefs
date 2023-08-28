@@ -123,11 +123,11 @@ func (mp *metaPartition) CreateDentry(req *CreateDentryReq, p *Packet) (err erro
 	}
 
 	dentry := &Dentry{
-		ParentId: req.ParentID,
-		Name:     req.Name,
-		Inode:    req.Inode,
-		Type:     req.Mode,
-		FileId:   req.FileId,
+		ParentId:  req.ParentID,
+		Name:      req.Name,
+		Inode:     req.Inode,
+		Type:      req.Mode,
+		FileId:    req.FileId,
 		multiSnap: NewDentrySnap(mp.GetVerSeq()),
 	}
 
@@ -245,7 +245,7 @@ func (mp *metaPartition) TxDeleteDentry(req *proto.TxDeleteDentryRequest, p *Pac
 func (mp *metaPartition) DeleteDentryByDirVer(req *DeleteDentryReq, p *Packet) (err error) {
 
 	dirVerdentry := &DirVerDentry{
-		Dentry:&Dentry{
+		Dentry: &Dentry{
 			ParentId: req.ParentID,
 			Name:     req.Name,
 		},

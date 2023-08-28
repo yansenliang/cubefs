@@ -297,7 +297,6 @@ func (mp *metaPartition) UnlinkInode(req *UnlinkInoReq, p *Packet) (err error) {
 		ino.Flag |= InodeDelTop
 	}
 
-
 	log.LogDebugf("action[UnlinkInode] ino %v submit", ino)
 	r, err := mp.buildAndSubmitInoPacket(ino, opFSMUnlinkByDirVer, opFSMUnlinkInode, p)
 	if err != nil {

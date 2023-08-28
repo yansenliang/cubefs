@@ -146,7 +146,7 @@ func (verMgr *VolVersionManager) GenerateVer(verSeq uint64, op uint8) (err error
 
 	verMgr.prepareCommit.op = op
 	size := len(verMgr.multiVersionList)
-	if size > 0 && tm.Before(time.Unix(int64(verMgr.multiVersionList[size-1].Ver)/1e6,0)) {
+	if size > 0 && tm.Before(time.Unix(int64(verMgr.multiVersionList[size-1].Ver)/1e6, 0)) {
 		verMgr.prepareCommit.prepareInfo.Ver = uint64(verMgr.multiVersionList[size-1].Ver) + 1
 		log.LogDebugf("action[GenerateVer] vol %v  use ver %v", verMgr.vol.Name, verMgr.prepareCommit.prepareInfo.Ver)
 	}
@@ -216,7 +216,7 @@ func (verMgr *VolVersionManager) checkSnapshotStrategy() {
 		log.LogDebugf("checkSnapshotStrategy.vol %v try create snapshot", verMgr.vol.Name)
 		if _, err := verMgr.createVer2PhaseTask(verMgr.c, uint64(time.Now().UnixMicro()), proto.CreateVersion, verMgr.strategy.ForceUpdate); err != nil {
 			verEle := verMgr.multiVersionList[len(verMgr.multiVersionList)-1]
-			if int64(verEle.Ver)/1e6 + int64(verMgr.strategy.Periodic * 24 * 3600) < curTime.Unix() {
+			if int64(verEle.Ver)/1e6+int64(verMgr.strategy.Periodic*24*3600) < curTime.Unix() {
 				msg := fmt.Sprintf("[checkSnapshotStrategy] last version %v status %v for %v hours than 2times periodic", verEle.Ver, verEle.Status, 2*verMgr.strategy.Periodic)
 				Warn(verMgr.c.Name, msg)
 			}
@@ -234,7 +234,7 @@ func (verMgr *VolVersionManager) checkSnapshotStrategy() {
 		if verMgr.multiVersionList[0].Status != proto.VersionNormal {
 			log.LogDebugf("checkSnapshotStrategy.vol %v oldest ver %v status %v",
 				verMgr.vol.Name, verMgr.multiVersionList[0].Ver, verMgr.multiVersionList[0].Status)
-			if verMgr.multiVersionList[0].DelTime + int64(verMgr.strategy.Periodic * 24 * 3600) < curTime.Unix() {
+			if verMgr.multiVersionList[0].DelTime+int64(verMgr.strategy.Periodic*24*3600) < curTime.Unix() {
 				msg := fmt.Sprintf("[checkSnapshotStrategy] version %v in deleting status for %v hours than configure periodic [%v] hours",
 					verMgr.multiVersionList[0].Ver, verMgr.multiVersionList[0].Status, verMgr.strategy.Periodic)
 				Warn(verMgr.c.Name, msg)

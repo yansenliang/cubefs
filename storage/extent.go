@@ -474,8 +474,6 @@ func (e *Extent) autoComputeExtentCrc(crcFunc UpdateCrcFunc) (crc uint32, err er
 	return crc, err
 }
 
-
-
 // DeleteTiny deletes a tiny extent.
 func (e *Extent) DeleteTiny(offset, size int64) (hasDelete bool, err error) {
 	if int(offset)%util.PageSize != 0 {

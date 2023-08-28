@@ -909,7 +909,7 @@ func TestTruncateAndDel(t *testing.T) {
 	log.LogDebugf("TestTruncate start")
 	testCreateVer() // seq2 IS commited, seq3 not
 	log.LogDebugf("TestTruncate start")
-	ino.setVolVer(0)  // unlink top layer
+	ino.setVolVer(0) // unlink top layer
 	mp.fsmUnlinkInode(ino)
 	log.LogDebugf("TestTruncate start")
 	assert.True(t, 3 == len(fileIno.multiSnap.multiVersions))
