@@ -266,7 +266,7 @@ func readSnapshot() (err error) {
 		ino     *proto.InodeInfo
 	)
 
-	log.LogDebugf("action[readSnapshot] ReadDirLimit_ll parent root verSeq %v", VerSeq)
+	log.LogDebugf("action[readSnapshot] ReadDirLimit parent root verSeq %v", VerSeq)
 	parents, err = gMetaWrapper.ReadDirLimitByVer(1, "", math.MaxUint64, VerSeq, false) // one more for nextMarker
 	if err != nil && err != syscall.ENOENT {
 		log.LogErrorf("action[readSnapshot] parent root verSeq %v err %v", VerSeq, err)
@@ -290,7 +290,7 @@ func cleanSnapshot() (err error) {
 	)
 	//return readSnapshot()
 
-	log.LogDebugf("action[cleanSnapshot] ReadDirLimit_ll parent root verSeq %v", VerSeq)
+	log.LogDebugf("action[cleanSnapshot] ReadDirLimit parent root verSeq %v", VerSeq)
 	parents, err = gMetaWrapper.ReadDirLimitByVer(1, "", math.MaxUint64, VerSeq, false) // one more for nextMarker
 	if err != nil && err != syscall.ENOENT {
 		log.LogErrorf("action[cleanSnapshot] parent root verSeq %v err %v", VerSeq, err)

@@ -172,6 +172,12 @@ type OpDentry interface {
 	TxUpdateDentry(req *proto.TxUpdateDentryRequest, p *Packet) (err error)
 }
 
+type OpDirSnapshot interface {
+	ListAllDirSnapshot(rootIno uint64, p *Packet) (err error)
+	DelDirSnapshot(ifo *proto.DirVerItem, p *Packet) (err error)
+	CreateDirSnapshot(ifo *proto.CreateDirSnapShotInfo, p *Packet) (err error)
+}
+
 type OpTransaction interface {
 	TxCommit(req *proto.TxApplyRequest, p *Packet) (err error)
 	TxInodeCommit(req *proto.TxInodeApplyRequest, p *Packet) (err error)
@@ -225,6 +231,7 @@ type OpMeta interface {
 	OpTransaction
 	OpQuota
 	OpMultiVersion
+	OpDirSnapshot
 }
 
 // OpPartition defines the interface for the partition operations.

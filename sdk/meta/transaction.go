@@ -26,11 +26,11 @@ import (
 //	defaultTransactionTimeout = 5 //seconds
 //)
 
-//1.first metawrapper call with `Transaction` as a parameter,
+//1.first SnapShotMetaWrapper call with `Transaction` as a parameter,
 //if tmID is not set(tmID == -1), then try to register a transaction to the metapartitions,
 //the metapartition will become TM if transaction created successfully. and it will return txid.
-//metawrapper call will set tmID before returning
-//2.following metawrapper call with `Transaction` as a parameter, will only register rollback item,
+//SnapShotMetaWrapper call will set tmID before returning
+//2.following SnapShotMetaWrapper call with `Transaction` as a parameter, will only register rollback item,
 //and the metapartition will become RM
 type Transaction struct {
 	txInfo          *proto.TransactionInfo
@@ -150,7 +150,7 @@ func (tx *Transaction) SetOnRollback(job func()) {
 	//tx.onRollback = job
 }
 
-func (tx *Transaction) OnDone(err error, mw *MetaWrapper) (newErr error) {
+func (tx *Transaction) OnDone(err error, mw *SnapShotMetaWrapper) (newErr error) {
 	//commit or rollback depending on status
 	newErr = err
 	if !tx.Started {
@@ -168,7 +168,7 @@ func (tx *Transaction) OnDone(err error, mw *MetaWrapper) (newErr error) {
 
 // Commit will notify all the RM(related metapartitions) that transaction is completed successfully,
 // and corresponding transaction items can be removed
-func (tx *Transaction) Commit(mw *MetaWrapper) (err error) {
+func (tx *Transaction) Commit(mw *SnapShotMetaWrapper) (err error) {
 	tmMP := mw.getPartitionByID(uint64(tx.txInfo.TmID))
 	if tmMP == nil {
 		log.LogErrorf("Transaction commit: No TM partition, TmID(%v), txID(%v)", tx.txInfo.TmID, tx.txInfo.TxID)
@@ -222,7 +222,7 @@ func (tx *Transaction) Commit(mw *MetaWrapper) (err error) {
 
 // Rollback will notify all the RM(related metapartitions) that transaction is cancelled,
 // and corresponding transaction items should be rolled back to previous state(before transaction)
-func (tx *Transaction) Rollback(mw *MetaWrapper) {
+func (tx *Transaction) Rollback(mw *SnapShotMetaWrapper) {
 	//todo_tx: if transaction info in TM is missing, should try to rollback each item
 	tmMP := mw.getPartitionByID(uint64(tx.txInfo.TmID))
 	if tmMP == nil {
@@ -297,7 +297,7 @@ func TestRenameTransaction() {
 
 	tx := renameTxGenerator(1, "oldname", 2, "newname")
 
-	// rename metawrapper invokation...
+	// rename SnapShotMetaWrapper invokation...
 	mw.ilinkTx(srcMP, inode, tx)
 	mw.dcreateTx(dstParentMP, dstParentID, dstName, inode, mode, tx)
 	mw.ddeleteTx(srcParentMP, srcParentID, srcName, lastVerSeq, tx)

@@ -380,7 +380,7 @@ func (v *Volume) GetXAttr(path string, key string) (info *proto.XAttrInfo, err e
 			log.LogDebugf("GetXAttr: get attr in cache failed: volume(%v) inode(%v) attrItem(%v), needRefresh(%v)",
 				v.name, inode, attrItem, needRefresh)
 			if attr, err = v.mw.XAttrGetAll_ll(inode); err != nil {
-				log.LogErrorf("XAttrGetAll_ll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
+				log.LogErrorf("XAttrGetAll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
 				return v.getXAttr(path, key)
 			} else {
 				attrItem = &AttrItem{
@@ -389,7 +389,7 @@ func (v *Volume) GetXAttr(path string, key string) (info *proto.XAttrInfo, err e
 				objMetaCache.PutAttr(v.name, attrItem)
 				val, ok := attr.XAttrs[key]
 				if !ok {
-					log.LogErrorf("XAttrGetAll_ll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
+					log.LogErrorf("XAttrGetAll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
 					return v.getXAttr(path, key)
 				} else {
 					info.XAttrs[key] = val
@@ -400,12 +400,12 @@ func (v *Volume) GetXAttr(path string, key string) (info *proto.XAttrInfo, err e
 			val, ok := attrItem.XAttrs[key]
 			if !ok {
 				if attr, err = v.mw.XAttrGetAll_ll(inode); err != nil {
-					log.LogErrorf("XAttrGetAll_ll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
+					log.LogErrorf("XAttrGetAll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
 					return v.getXAttr(path, key)
 				} else {
 					val, ok := attr.XAttrs[key]
 					if !ok {
-						log.LogErrorf("XAttrGetAll_ll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
+						log.LogErrorf("XAttrGetAll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
 						return v.getXAttr(path, key)
 					} else {
 						info.XAttrs[key] = val
@@ -480,7 +480,7 @@ func (v *Volume) ListXAttrs(path string) (keys []string, err error) {
 			log.LogDebugf("ListXAttrs: get attr in cache failed: volume(%v) inode(%v) attrItem(%v), needRefresh(%v)",
 				v.name, inode, attrItem, needRefresh)
 			if attr, err := v.mw.XAttrGetAll_ll(inode); err != nil {
-				log.LogErrorf("XAttrGetAll_ll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
+				log.LogErrorf("XAttrGetAll: meta get xattr fail: volume(%v) path(%v) inode(%v) err(%v)", v.name, path, inode, err)
 				return v.listXAttrs(path)
 			} else {
 				attrItem = &AttrItem{
@@ -774,11 +774,11 @@ func (v *Volume) PutObject(path string, reader io.Reader, opt *PutFileOption) (f
 	}
 
 	if err = v.mw.BatchSetXAttr_ll(invisibleTempDataInode.Inode, attr.XAttrs); err != nil {
-		log.LogErrorf("PutObject: BatchSetXAttr_ll fail: volume(%v) path(%v) inode(%v) attrs(%v) err(%v)",
+		log.LogErrorf("PutObject: BatchSetXAttr fail: volume(%v) path(%v) inode(%v) attrs(%v) err(%v)",
 			v.name, path, invisibleTempDataInode.Inode, attr.XAttrs, err)
 		return nil, err
 	}
-	log.LogDebugf("PutObject: BatchSetXAttr_ll success: volume(%v) path(%v) inode(%v) attrs(%v)",
+	log.LogDebugf("PutObject: BatchSetXAttr success: volume(%v) path(%v) inode(%v) attrs(%v)",
 		v.name, path, invisibleTempDataInode.Inode, attr.XAttrs)
 	// create file info
 	fsInfo = &FSFileInfo{
@@ -1605,7 +1605,7 @@ func (v *Volume) ObjectMeta(path string) (info *FSFileInfo, xattr *proto.XAttrIn
 				v.name, inode, attrItem, needRefresh)
 			xattr, err = v.mw.XAttrGetAll_ll(inode)
 			if err != nil {
-				log.LogErrorf("ObjectMeta:  XAttrGetAll_ll fail, volume(%v) inode(%v) path(%v) err(%v)",
+				log.LogErrorf("ObjectMeta:  XAttrGetAll fail, volume(%v) inode(%v) path(%v) err(%v)",
 					v.name, inode, path, err)
 				return
 			} else {
@@ -1623,7 +1623,7 @@ func (v *Volume) ObjectMeta(path string) (info *FSFileInfo, xattr *proto.XAttrIn
 	} else {
 		xattr, err = v.mw.XAttrGetAll_ll(inode)
 		if err != nil {
-			log.LogErrorf("ObjectMeta:  XAttrGetAll_ll fail, volume(%v) inode(%v) path(%v) err(%v)",
+			log.LogErrorf("ObjectMeta:  XAttrGetAll fail, volume(%v) inode(%v) path(%v) err(%v)",
 				v.name, inode, path, err)
 			return
 		}
@@ -2540,7 +2540,7 @@ func (v *Volume) CopyFile(sv *Volume, sourcePath, targetPath, metaDirective stri
 			}
 
 			if err = v.mw.BatchSetXAttr_ll(sInode, attr.XAttrs); err != nil {
-				log.LogErrorf("CopyFile: BatchSetXAttr_ll fail: volume(%v) source path(%v) inode(%v) attrs(%v) err(%v)",
+				log.LogErrorf("CopyFile: BatchSetXAttr fail: volume(%v) source path(%v) inode(%v) attrs(%v) err(%v)",
 					sv.name, sourcePath, sInode, attr.XAttrs, err)
 				return nil, err
 			}
@@ -2800,7 +2800,7 @@ func (v *Volume) CopyFile(sv *Volume, sourcePath, targetPath, metaDirective stri
 		}
 
 		if err = v.mw.BatchSetXAttr_ll(tInodeInfo.Inode, targetAttr.XAttrs); err != nil {
-			log.LogErrorf("CopyFile: BatchSetXAttr_ll fail: volume(%v) target path(%v) inode(%v) attrs(%v) err(%v)",
+			log.LogErrorf("CopyFile: BatchSetXAttr fail: volume(%v) target path(%v) inode(%v) attrs(%v) err(%v)",
 				v.name, targetPath, tInodeInfo.Inode, targetAttr.XAttrs, err)
 			return nil, err
 		}

@@ -50,7 +50,7 @@ const (
 	MaxGoroutineNum        = 5
 )
 
-func (mw *MetaWrapper) GetRootIno(subdir string) (uint64, error) {
+func (mw *SnapShotMetaWrapper) GetRootIno(subdir string) (uint64, error) {
 	rootIno, err := mw.LookupPath(subdir)
 	if err != nil {
 		return 0, fmt.Errorf("GetRootIno: Lookup failed, subdir(%v) err(%v)", subdir, err)
@@ -67,7 +67,7 @@ func (mw *MetaWrapper) GetRootIno(subdir string) (uint64, error) {
 }
 
 // Looks up absolute path and returns the ino
-func (mw *MetaWrapper) LookupPath(subdir string) (uint64, error) {
+func (mw *SnapShotMetaWrapper) LookupPath(subdir string) (uint64, error) {
 	ino := proto.RootIno
 	if subdir == "" || subdir == "/" {
 		return ino, nil
@@ -87,14 +87,14 @@ func (mw *MetaWrapper) LookupPath(subdir string) (uint64, error) {
 	return ino, nil
 }
 
-func (mw *MetaWrapper) Statfs() (total, used, inodeCount uint64) {
+func (mw *SnapShotMetaWrapper) Statfs() (total, used, inodeCount uint64) {
 	total = atomic.LoadUint64(&mw.totalSize)
 	used = atomic.LoadUint64(&mw.usedSize)
 	inodeCount = atomic.LoadUint64(&mw.inodeCount)
 	return
 }
 
-func (mw *MetaWrapper) Create_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) Create_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte) (*proto.InodeInfo, error) {
 	txMask := proto.TxOpMaskOff
 	if proto.IsRegular(mode) {
 		txMask = proto.TxOpMaskCreate
@@ -113,7 +113,7 @@ func (mw *MetaWrapper) Create_ll(parentID uint64, name string, mode, uid, gid ui
 	}
 }
 
-func (mw *MetaWrapper) txCreate_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte, txType uint32) (info *proto.InodeInfo, err error) {
+func (mw *SnapShotMetaWrapper) txCreate_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte, txType uint32) (info *proto.InodeInfo, err error) {
 	var (
 		status int
 		//err          error
@@ -197,7 +197,7 @@ create_dentry:
 	return info, nil
 }
 
-func (mw *MetaWrapper) create_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) create_ll(parentID uint64, name string, mode, uid, gid uint32, target []byte) (*proto.InodeInfo, error) {
 	var (
 		status       int
 		err          error
@@ -281,7 +281,7 @@ create_dentry:
 	return info, nil
 }
 
-func (mw *MetaWrapper) Lookup_ll(parentID uint64, name string) (inode uint64, mode uint32, err error) {
+func (mw *SnapShotMetaWrapper) Lookup_ll(parentID uint64, name string) (inode uint64, mode uint32, err error) {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		log.LogErrorf("Lookup_ll: No parent partition, parentID(%v) name(%v)", parentID, name)
@@ -295,7 +295,7 @@ func (mw *MetaWrapper) Lookup_ll(parentID uint64, name string) (inode uint64, mo
 	return inode, mode, nil
 }
 
-func (mw *MetaWrapper) LookupEx_ll(parentId uint64, name string) (den *proto.Dentry, err error) {
+func (mw *SnapShotMetaWrapper) LookupEx_ll(parentId uint64, name string) (den *proto.Dentry, err error) {
 	parentMP := mw.getPartitionByInode(parentId)
 	if parentMP == nil {
 		log.LogErrorf("LookUpEx_ll: No parent partition, parentID(%v) name(%v)", parentId, name)
@@ -310,7 +310,7 @@ func (mw *MetaWrapper) LookupEx_ll(parentId uint64, name string) (den *proto.Den
 	return den, nil
 }
 
-func (mw *MetaWrapper) BatchGetExpiredMultipart(prefix string, days int) (expiredIds []*proto.ExpiredMultipartInfo, err error) {
+func (mw *SnapShotMetaWrapper) BatchGetExpiredMultipart(prefix string, days int) (expiredIds []*proto.ExpiredMultipartInfo, err error) {
 	partitions := mw.partitions
 	var (
 		mp *MetaPartition
@@ -345,7 +345,7 @@ func (mw *MetaWrapper) BatchGetExpiredMultipart(prefix string, days int) (expire
 	return
 }
 
-func (mw *MetaWrapper) InodeGet_ll(inode uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) InodeGet_ll(inode uint64) (*proto.InodeInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeGet_ll: No such partition, ino(%v)", inode)
@@ -367,7 +367,7 @@ func (mw *MetaWrapper) InodeGet_ll(inode uint64) (*proto.InodeInfo, error) {
 }
 
 // Just like InodeGet but without retry
-func (mw *MetaWrapper) doInodeGet(inode uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) doInodeGet(inode uint64) (*proto.InodeInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeGet_ll: No such partition, ino(%v)", inode)
@@ -382,7 +382,7 @@ func (mw *MetaWrapper) doInodeGet(inode uint64) (*proto.InodeInfo, error) {
 	return info, nil
 }
 
-func (mw *MetaWrapper) BatchInodeGet(inodes []uint64) []*proto.InodeInfo {
+func (mw *SnapShotMetaWrapper) BatchInodeGet(inodes []uint64) []*proto.InodeInfo {
 	var wg sync.WaitGroup
 
 	batchInfos := make([]*proto.InodeInfo, 0)
@@ -423,7 +423,7 @@ func (mw *MetaWrapper) BatchInodeGet(inodes []uint64) []*proto.InodeInfo {
 	return batchInfos
 }
 
-func (mw *MetaWrapper) BatchInodeGetWith(inodes []uint64) (batchInfos []*proto.InodeInfo, err error) {
+func (mw *SnapShotMetaWrapper) BatchInodeGetWith(inodes []uint64) (batchInfos []*proto.InodeInfo, err error) {
 	var wg sync.WaitGroup
 
 	resp := make(chan []*proto.InodeInfo, BatchIgetRespBuf)
@@ -494,7 +494,7 @@ func (mw *MetaWrapper) BatchInodeGetWith(inodes []uint64) (batchInfos []*proto.I
 
 // InodeDelete_ll is a low-level api that removes specified inode immediately
 // and do not effect extent data managed by this inode.
-func (mw *MetaWrapper) InodeDelete_ll(inode uint64) error {
+func (mw *SnapShotMetaWrapper) InodeDelete_ll(inode uint64) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeDelete: No such partition, ino(%v)", inode)
@@ -504,11 +504,11 @@ func (mw *MetaWrapper) InodeDelete_ll(inode uint64) error {
 	if err != nil || status != statusOK {
 		return statusToErrno(status)
 	}
-	log.LogDebugf("InodeDelete_ll: inode(%v)", inode)
+	log.LogDebugf("InodeDelete: inode(%v)", inode)
 	return nil
 }
 
-func (mw *MetaWrapper) BatchGetXAttr(inodes []uint64, keys []string) ([]*proto.XAttrInfo, error) {
+func (mw *SnapShotMetaWrapper) BatchGetXAttr(inodes []uint64, keys []string) ([]*proto.XAttrInfo, error) {
 	// Collect meta partitions
 	var (
 		mps      = make(map[uint64]*MetaPartition) // Mapping: partition ID -> partition
@@ -564,7 +564,7 @@ func (mw *MetaWrapper) BatchGetXAttr(inodes []uint64, keys []string) ([]*proto.X
 	return xattrs, nil
 }
 
-func (mw *MetaWrapper) Delete_ll(parentID uint64, name string, isDir bool) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) Delete_ll(parentID uint64, name string, isDir bool) (*proto.InodeInfo, error) {
 	//if mw.EnableTransaction {
 	if mw.EnableTransaction&proto.TxOpMaskRemove > 0 {
 		return mw.txDelete_ll(parentID, name, isDir)
@@ -572,7 +572,7 @@ func (mw *MetaWrapper) Delete_ll(parentID uint64, name string, isDir bool) (*pro
 		return mw.Delete_ll_EX(parentID, name, isDir, 0)
 	}
 }
-func (mw *MetaWrapper) Delete_Ver_ll(parentID uint64, name string, isDir bool, verSeq uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) Delete_Ver_ll(parentID uint64, name string, isDir bool, verSeq uint64) (*proto.InodeInfo, error) {
 	if verSeq == 0 {
 		verSeq = math.MaxUint64
 	}
@@ -580,12 +580,12 @@ func (mw *MetaWrapper) Delete_Ver_ll(parentID uint64, name string, isDir bool, v
 	return mw.Delete_ll_EX(parentID, name, isDir, verSeq)
 }
 
-func (mw *MetaWrapper) DeleteVerEx_ll(parentID uint64, name string, isDir bool, ver *proto.DelVer) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) DeleteVerEx_ll(parentID uint64, name string, isDir bool, ver *proto.DelVer) (*proto.InodeInfo, error) {
 
-	return mw.Delete_ll_EX(parentID, name, isDir, ver.DelVer)
+	return mw.Delete_ll_EX(parentID, name, isDir, ver.DelVel)
 }
 
-func (mw *MetaWrapper) txDelete_ll(parentID uint64, name string, isDir bool) (info *proto.InodeInfo, err error) {
+func (mw *SnapShotMetaWrapper) txDelete_ll(parentID uint64, name string, isDir bool) (info *proto.InodeInfo, err error) {
 	var (
 		status int
 		inode  uint64
@@ -702,11 +702,11 @@ func (mw *MetaWrapper) txDelete_ll(parentID uint64, name string, isDir bool) (in
 	return info, err
 }
 
-func (mw *MetaWrapper) BatchDelete_ll(dentries []*proto.ScanDentry) {
+func (mw *SnapShotMetaWrapper) BatchDelete_ll(dentries []*proto.ScanDentry) {
 	mw.batchDelete_ll(dentries)
 }
 
-func (mw *MetaWrapper) batchDelete_ll(dentries []*proto.ScanDentry) {
+func (mw *SnapShotMetaWrapper) batchDelete_ll(dentries []*proto.ScanDentry) {
 	pidDentries := make(map[uint64][]proto.Dentry)
 	for _, d := range dentries {
 		if _, ok := pidDentries[d.ParentId]; !ok {
@@ -760,7 +760,7 @@ func (mw *MetaWrapper) batchDelete_ll(dentries []*proto.ScanDentry) {
  * and the caller should make sure InodeInfo is valid before using it.
  */
 
-func (mw *MetaWrapper) Delete_ll_EX(parentID uint64, name string, isDir bool, verSeq uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) Delete_ll_EX(parentID uint64, name string, isDir bool, verSeq uint64) (*proto.InodeInfo, error) {
 	var (
 		status int
 		inode  uint64
@@ -849,7 +849,7 @@ func (mw *MetaWrapper) Delete_ll_EX(parentID uint64, name string, isDir bool, ve
 	return info, nil
 }
 
-func (mw *MetaWrapper) Rename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
+func (mw *SnapShotMetaWrapper) Rename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
 	//if mw.EnableTransaction {
 	if mw.EnableTransaction&proto.TxOpMaskRename > 0 {
 		return mw.txRename_ll(srcParentID, srcName, dstParentID, dstName, overwritten)
@@ -858,7 +858,7 @@ func (mw *MetaWrapper) Rename_ll(srcParentID uint64, srcName string, dstParentID
 	}
 }
 
-func (mw *MetaWrapper) txRename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
+func (mw *SnapShotMetaWrapper) txRename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
 	var tx *Transaction
 	defer func() {
 		if tx != nil {
@@ -1057,7 +1057,7 @@ func (mw *MetaWrapper) txRename_ll(srcParentID uint64, srcName string, dstParent
 	return nil
 }
 
-func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
+func (mw *SnapShotMetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID uint64, dstName string, overwritten bool) (err error) {
 	var (
 		oldInode   uint64
 		lastVerSeq uint64
@@ -1073,7 +1073,7 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 	}
 
 	// look up for the src ino
-	//status, inode, mode, err := mw.lookup(srcParentMP, srcParentID, srcName, 0)
+	mw.verInfo = mw.srcVer
 	status, err, den := mw.lookupEx(srcParentMP, srcParentID, srcName, 0)
 	if err != nil || status != statusOK {
 		return statusToErrno(status)
@@ -1121,6 +1121,8 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 		QuotaIds: quotaIds,
 		FileId:   den.FileId,
 	}
+
+	mw.verInfo = mw.dstVer
 	status, err = mw.dcreateEx(dstParentMP, createReq)
 	if err != nil {
 		if status == statusOpDirQuota {
@@ -1149,6 +1151,7 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 		}
 	}
 
+	mw.verInfo = mw.srcVer
 	if status != statusOK {
 		mw.iunlink(srcMP, inode, lastVerSeq, 0)
 		return statusToErrno(status)
@@ -1232,7 +1235,7 @@ func (mw *MetaWrapper) rename_ll(srcParentID uint64, srcName string, dstParentID
 }
 
 // Read all dentries with parentID
-func (mw *MetaWrapper) ReadDir_ll(parentID uint64) ([]proto.Dentry, error) {
+func (mw *SnapShotMetaWrapper) ReadDir_ll(parentID uint64) ([]proto.Dentry, error) {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		return nil, syscall.ENOENT
@@ -1246,7 +1249,7 @@ func (mw *MetaWrapper) ReadDir_ll(parentID uint64) ([]proto.Dentry, error) {
 }
 
 // Read limit count dentries with parentID, start from string
-func (mw *MetaWrapper) ReadDirLimitByVer(parentID uint64, from string, limit uint64, verSeq uint64, is2nd bool) ([]proto.Dentry, error) {
+func (mw *SnapShotMetaWrapper) ReadDirLimitByVer(parentID uint64, from string, limit uint64, verSeq uint64, is2nd bool) ([]proto.Dentry, error) {
 	if verSeq == 0 {
 		verSeq = math.MaxUint64
 	}
@@ -1271,7 +1274,7 @@ func (mw *MetaWrapper) ReadDirLimitByVer(parentID uint64, from string, limit uin
 }
 
 // Read limit count dentries with parentID, start from string
-func (mw *MetaWrapper) ReadDirLimit_ll(parentID uint64, from string, limit uint64) ([]proto.Dentry, error) {
+func (mw *SnapShotMetaWrapper) ReadDirLimit_ll(parentID uint64, from string, limit uint64) ([]proto.Dentry, error) {
 	log.LogDebugf("action[ReadDirLimit_ll] parentID %v from %v limit %v", parentID, from, limit)
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
@@ -1285,7 +1288,7 @@ func (mw *MetaWrapper) ReadDirLimit_ll(parentID uint64, from string, limit uint6
 	return children, nil
 }
 
-func (mw *MetaWrapper) DentryCreate_ll(parentID uint64, name string, inode uint64, mode uint32) error {
+func (mw *SnapShotMetaWrapper) DentryCreate_ll(parentID uint64, name string, inode uint64, mode uint32) error {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		return syscall.ENOENT
@@ -1299,7 +1302,7 @@ func (mw *MetaWrapper) DentryCreate_ll(parentID uint64, name string, inode uint6
 	return nil
 }
 
-func (mw *MetaWrapper) DentryCreateEx_ll(req *proto.CreateDentryRequest) error {
+func (mw *SnapShotMetaWrapper) DentryCreateEx_ll(req *proto.CreateDentryRequest) error {
 	parentMP := mw.getPartitionByInode(req.ParentID)
 	if parentMP == nil {
 		return syscall.ENOENT
@@ -1312,7 +1315,7 @@ func (mw *MetaWrapper) DentryCreateEx_ll(req *proto.CreateDentryRequest) error {
 }
 
 //todo_tx:
-func (mw *MetaWrapper) DentryUpdate_ll(parentID uint64, name string, inode uint64) (oldInode uint64, err error) {
+func (mw *SnapShotMetaWrapper) DentryUpdate_ll(parentID uint64, name string, inode uint64) (oldInode uint64, err error) {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		err = syscall.ENOENT
@@ -1327,7 +1330,7 @@ func (mw *MetaWrapper) DentryUpdate_ll(parentID uint64, name string, inode uint6
 	return
 }
 
-func (mw *MetaWrapper) SplitExtentKey(parentInode, inode uint64, ek proto.ExtentKey) error {
+func (mw *SnapShotMetaWrapper) SplitExtentKey(parentInode, inode uint64, ek proto.ExtentKey) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return syscall.ENOENT
@@ -1359,7 +1362,7 @@ func (mw *MetaWrapper) SplitExtentKey(parentInode, inode uint64, ek proto.Extent
 }
 
 // Used as a callback by stream sdk
-func (mw *MetaWrapper) AppendExtentKey(parentInode, inode uint64, ek proto.ExtentKey, discard []proto.ExtentKey) error {
+func (mw *SnapShotMetaWrapper) AppendExtentKey(parentInode, inode uint64, ek proto.ExtentKey, discard []proto.ExtentKey) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return syscall.ENOENT
@@ -1371,10 +1374,10 @@ func (mw *MetaWrapper) AppendExtentKey(parentInode, inode uint64, ek proto.Exten
 
 	status, err := mw.appendExtentKey(mp, inode, ek, discard, false)
 	if err != nil || status != statusOK {
-		log.LogErrorf("MetaWrapper AppendExtentKey: inode(%v) ek(%v) local discard(%v) err(%v) status(%v)", inode, ek, discard, err, status)
+		log.LogErrorf("SnapShotMetaWrapper AppendExtentKey: inode(%v) ek(%v) local discard(%v) err(%v) status(%v)", inode, ek, discard, err, status)
 		return statusToErrno(status)
 	}
-	log.LogDebugf("MetaWrapper AppendExtentKey: ino(%v) ek(%v) discard(%v)", inode, ek, discard)
+	log.LogDebugf("SnapShotMetaWrapper AppendExtentKey: ino(%v) ek(%v) discard(%v)", inode, ek, discard)
 
 	if mw.EnableSummary {
 		go func() {
@@ -1391,7 +1394,7 @@ func (mw *MetaWrapper) AppendExtentKey(parentInode, inode uint64, ek proto.Exten
 }
 
 // AppendExtentKeys append multiple extent key into specified inode with single request.
-func (mw *MetaWrapper) AppendExtentKeys(inode uint64, eks []proto.ExtentKey) error {
+func (mw *SnapShotMetaWrapper) AppendExtentKeys(inode uint64, eks []proto.ExtentKey) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return syscall.ENOENT
@@ -1407,7 +1410,7 @@ func (mw *MetaWrapper) AppendExtentKeys(inode uint64, eks []proto.ExtentKey) err
 }
 
 // AppendObjExtentKeys append multiple obj extent key into specified inode with single request.
-func (mw *MetaWrapper) AppendObjExtentKeys(inode uint64, eks []proto.ObjExtentKey) error {
+func (mw *SnapShotMetaWrapper) AppendObjExtentKeys(inode uint64, eks []proto.ObjExtentKey) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return syscall.ENOENT
@@ -1422,7 +1425,7 @@ func (mw *MetaWrapper) AppendObjExtentKeys(inode uint64, eks []proto.ObjExtentKe
 	return nil
 }
 
-func (mw *MetaWrapper) GetExtents(inode uint64) (gen uint64, size uint64, extents []proto.ExtentKey, err error) {
+func (mw *SnapShotMetaWrapper) GetExtents(inode uint64) (gen uint64, size uint64, extents []proto.ExtentKey, err error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return 0, 0, nil, syscall.ENOENT
@@ -1430,11 +1433,8 @@ func (mw *MetaWrapper) GetExtents(inode uint64) (gen uint64, size uint64, extent
 
 	resp, err := mw.getExtents(mp, inode)
 	if err != nil {
-		if resp != nil {
-			err = statusToErrno(resp.Status)
-		}
-		log.LogErrorf("GetExtents: ino(%v) err(%v)", inode, err)
-		return 0, 0, nil, err
+		log.LogErrorf("GetExtents: ino(%v) err(%v) status(%v)", inode, err, resp.Status)
+		return 0, 0, nil, statusToErrno(resp.Status)
 	}
 	extents = resp.Extents
 	gen = resp.Generation
@@ -1445,7 +1445,7 @@ func (mw *MetaWrapper) GetExtents(inode uint64) (gen uint64, size uint64, extent
 	return gen, size, extents, nil
 }
 
-func (mw *MetaWrapper) GetObjExtents(inode uint64) (gen uint64, size uint64, extents []proto.ExtentKey, objExtents []proto.ObjExtentKey, err error) {
+func (mw *SnapShotMetaWrapper) GetObjExtents(inode uint64) (gen uint64, size uint64, extents []proto.ExtentKey, objExtents []proto.ObjExtentKey, err error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		return 0, 0, nil, nil, syscall.ENOENT
@@ -1460,7 +1460,22 @@ func (mw *MetaWrapper) GetObjExtents(inode uint64) (gen uint64, size uint64, ext
 	return gen, size, extents, objExtents, nil
 }
 
-func (mw *MetaWrapper) Truncate(inode, size uint64) error {
+// func (mw *SnapShotMetaWrapper) DelExtentKeys(inode uint64, eks []proto.ExtentKey) error {
+// 	mp := mw.getPartitionByInode(inode)
+// 	if mp == nil {
+// 		return syscall.ENOENT
+// 	}
+
+// 	status, err := mw.delExtentKey(mp, inode, eks)
+// 	if err != nil || status != statusOK {
+// 		log.LogErrorf("DelExtentKeys: inode(%v) eks(%v)err(%v) status(%v)", inode, eks, err, status)
+// 		return statusToErrno(status)
+// 	}
+// 	log.LogDebugf("DelExtentKeys: ino(%v) eks(%v)", inode, eks)
+// 	return nil
+// }
+
+func (mw *SnapShotMetaWrapper) Truncate(inode, size uint64) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("Truncate: No inode partition, ino(%v)", inode)
@@ -1475,7 +1490,7 @@ func (mw *MetaWrapper) Truncate(inode, size uint64) error {
 
 }
 
-func (mw *MetaWrapper) Link(parentID uint64, name string, ino uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) Link(parentID uint64, name string, ino uint64) (*proto.InodeInfo, error) {
 	//if mw.EnableTransaction {
 	if mw.EnableTransaction&proto.TxOpMaskLink > 0 {
 		return mw.txLink(parentID, name, ino)
@@ -1484,7 +1499,7 @@ func (mw *MetaWrapper) Link(parentID uint64, name string, ino uint64) (*proto.In
 	}
 }
 
-func (mw *MetaWrapper) txLink(parentID uint64, name string, ino uint64) (info *proto.InodeInfo, err error) {
+func (mw *SnapShotMetaWrapper) txLink(parentID uint64, name string, ino uint64) (info *proto.InodeInfo, err error) {
 	//var err error
 	var status int
 	parentMP := mw.getPartitionByInode(parentID)
@@ -1533,7 +1548,7 @@ func (mw *MetaWrapper) txLink(parentID uint64, name string, ino uint64) (info *p
 	return info, nil
 }
 
-func (mw *MetaWrapper) link(parentID uint64, name string, ino uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) link(parentID uint64, name string, ino uint64) (*proto.InodeInfo, error) {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		log.LogErrorf("Link: No parent partition, parentID(%v)", parentID)
@@ -1574,7 +1589,7 @@ func (mw *MetaWrapper) link(parentID uint64, name string, ino uint64) (*proto.In
 	return info, nil
 }
 
-func (mw *MetaWrapper) Evict(inode uint64) error {
+func (mw *SnapShotMetaWrapper) Evict(inode uint64) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogWarnf("Evict: No such partition, ino(%v)", inode)
@@ -1589,7 +1604,7 @@ func (mw *MetaWrapper) Evict(inode uint64) error {
 	return nil
 }
 
-func (mw *MetaWrapper) Setattr(inode uint64, valid, mode, uid, gid uint32, atime, mtime int64) error {
+func (mw *SnapShotMetaWrapper) Setattr(inode uint64, valid, mode, uid, gid uint32, atime, mtime int64) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("Setattr: No such partition, ino(%v)", inode)
@@ -1605,7 +1620,7 @@ func (mw *MetaWrapper) Setattr(inode uint64, valid, mode, uid, gid uint32, atime
 	return nil
 }
 
-func (mw *MetaWrapper) InodeCreate_ll(mode, uid, gid uint32, target []byte, quotaIds []uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) InodeCreate_ll(mode, uid, gid uint32, target []byte, quotaIds []uint64) (*proto.InodeInfo, error) {
 	var (
 		status       int
 		err          error
@@ -1629,7 +1644,7 @@ func (mw *MetaWrapper) InodeCreate_ll(mode, uid, gid uint32, target []byte, quot
 }
 
 // InodeUnlink_ll is a low-level api that makes specified inode link value +1.
-func (mw *MetaWrapper) InodeLink_ll(inode uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) InodeLink_ll(inode uint64) (*proto.InodeInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeLink_ll: No such partition, ino(%v)", inode)
@@ -1644,7 +1659,7 @@ func (mw *MetaWrapper) InodeLink_ll(inode uint64) (*proto.InodeInfo, error) {
 }
 
 // InodeUnlink_ll is a low-level api that makes specified inode link value -1.
-func (mw *MetaWrapper) InodeUnlink_ll(inode uint64) (*proto.InodeInfo, error) {
+func (mw *SnapShotMetaWrapper) InodeUnlink_ll(inode uint64) (*proto.InodeInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeUnlink_ll: No such partition, ino(%v)", inode)
@@ -1658,7 +1673,7 @@ func (mw *MetaWrapper) InodeUnlink_ll(inode uint64) (*proto.InodeInfo, error) {
 	return info, nil
 }
 
-func (mw *MetaWrapper) InodeClearPreloadCache_ll(inode uint64) error {
+func (mw *SnapShotMetaWrapper) InodeClearPreloadCache_ll(inode uint64) error {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeClearPreloadCache_ll: No such partition, ino(%v)", inode)
@@ -1672,7 +1687,7 @@ func (mw *MetaWrapper) InodeClearPreloadCache_ll(inode uint64) error {
 	return nil
 }
 
-func (mw *MetaWrapper) InitMultipart_ll(path string, extend map[string]string) (multipartId string, err error) {
+func (mw *SnapShotMetaWrapper) InitMultipart_ll(path string, extend map[string]string) (multipartId string, err error) {
 	var (
 		status       int
 		mp           *MetaPartition
@@ -1705,7 +1720,7 @@ func (mw *MetaWrapper) InitMultipart_ll(path string, extend map[string]string) (
 	}
 }
 
-func (mw *MetaWrapper) GetMultipart_ll(path, multipartId string) (info *proto.MultipartInfo, err error) {
+func (mw *SnapShotMetaWrapper) GetMultipart_ll(path, multipartId string) (info *proto.MultipartInfo, err error) {
 	var (
 		mpId  uint64
 		found bool
@@ -1730,7 +1745,7 @@ func (mw *MetaWrapper) GetMultipart_ll(path, multipartId string) (info *proto.Mu
 	return multipartInfo, nil
 }
 
-func (mw *MetaWrapper) AddMultipartPart_ll(path, multipartId string, partId uint16, size uint64, md5 string, inodeInfo *proto.InodeInfo) (oldInode uint64, updated bool, err error) {
+func (mw *SnapShotMetaWrapper) AddMultipartPart_ll(path, multipartId string, partId uint16, size uint64, md5 string, inodeInfo *proto.InodeInfo) (oldInode uint64, updated bool, err error) {
 	var (
 		mpId  uint64
 		found bool
@@ -1758,7 +1773,7 @@ func (mw *MetaWrapper) AddMultipartPart_ll(path, multipartId string, partId uint
 	return
 }
 
-func (mw *MetaWrapper) RemoveMultipart_ll(path, multipartID string) (err error) {
+func (mw *SnapShotMetaWrapper) RemoveMultipart_ll(path, multipartID string) (err error) {
 	var (
 		mpId  uint64
 		found bool
@@ -1786,7 +1801,7 @@ func (mw *MetaWrapper) RemoveMultipart_ll(path, multipartID string) (err error) 
 	return
 }
 
-func (mw *MetaWrapper) broadcastGetMultipart(path, multipartId string) (info *proto.MultipartInfo, mpID uint64, err error) {
+func (mw *SnapShotMetaWrapper) broadcastGetMultipart(path, multipartId string) (info *proto.MultipartInfo, mpID uint64, err error) {
 	log.LogInfof("broadcastGetMultipart: find meta partition broadcast multipartId(%v)", multipartId)
 	partitions := mw.partitions
 	var (
@@ -1822,7 +1837,7 @@ func (mw *MetaWrapper) broadcastGetMultipart(path, multipartId string) (info *pr
 	return
 }
 
-func (mw *MetaWrapper) ListMultipart_ll(prefix, delimiter, keyMarker string, multipartIdMarker string, maxUploads uint64) (sessionResponse []*proto.MultipartInfo, err error) {
+func (mw *SnapShotMetaWrapper) ListMultipart_ll(prefix, delimiter, keyMarker string, multipartIdMarker string, maxUploads uint64) (sessionResponse []*proto.MultipartInfo, err error) {
 	partitions := mw.partitions
 	var wg = sync.WaitGroup{}
 	var wl = sync.Mutex{}
@@ -1855,7 +1870,7 @@ func (mw *MetaWrapper) ListMultipart_ll(prefix, delimiter, keyMarker string, mul
 	return sessions, nil
 }
 
-func (mw *MetaWrapper) XAttrSet_ll(inode uint64, name, value []byte) error {
+func (mw *SnapShotMetaWrapper) XAttrSet_ll(inode uint64, name, value []byte) error {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -1889,7 +1904,7 @@ func (mw *MetaWrapper) XAttrSetEx_ll(inode uint64, name, value []byte, overWrite
 	return nil
 }
 
-func (mw *MetaWrapper) BatchSetXAttr_ll(inode uint64, attrs map[string]string) error {
+func (mw *SnapShotMetaWrapper) BatchSetXAttr_ll(inode uint64, attrs map[string]string) error {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -1906,7 +1921,7 @@ func (mw *MetaWrapper) BatchSetXAttr_ll(inode uint64, attrs map[string]string) e
 	return nil
 }
 
-func (mw *MetaWrapper) SetInodeLock_ll(inode uint64, req *proto.InodeLockReq) error {
+func (mw *SnapShotMetaWrapper) SetInodeLock_ll(inode uint64, req *proto.InodeLockReq) error {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -1925,7 +1940,7 @@ func (mw *MetaWrapper) SetInodeLock_ll(inode uint64, req *proto.InodeLockReq) er
 	return nil
 }
 
-func (mw *MetaWrapper) XAttrGetAll_ll(inode uint64) (*proto.XAttrInfo, error) {
+func (mw *SnapShotMetaWrapper) XAttrGetAll_ll(inode uint64) (*proto.XAttrInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("XAttrGetAll_ll: no such partition, ino(%v)", inode)
@@ -1947,7 +1962,7 @@ func (mw *MetaWrapper) XAttrGetAll_ll(inode uint64) (*proto.XAttrInfo, error) {
 	return xAttr, nil
 }
 
-func (mw *MetaWrapper) XAttrGet_ll(inode uint64, name string) (*proto.XAttrInfo, error) {
+func (mw *SnapShotMetaWrapper) XAttrGet_ll(inode uint64, name string) (*proto.XAttrInfo, error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		log.LogErrorf("InodeGet_ll: no such partition, ino(%v)", inode)
@@ -1973,7 +1988,7 @@ func (mw *MetaWrapper) XAttrGet_ll(inode uint64, name string) (*proto.XAttrInfo,
 }
 
 // XAttrDel_ll is a low-level meta api that deletes specified xattr.
-func (mw *MetaWrapper) XAttrDel_ll(inode uint64, name string) error {
+func (mw *SnapShotMetaWrapper) XAttrDel_ll(inode uint64, name string) error {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -1989,7 +2004,7 @@ func (mw *MetaWrapper) XAttrDel_ll(inode uint64, name string) error {
 	return nil
 }
 
-func (mw *MetaWrapper) XBatchDelAttr_ll(inode uint64, keys []string) error {
+func (mw *SnapShotMetaWrapper) XBatchDelAttr_ll(inode uint64, keys []string) error {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -2007,7 +2022,7 @@ func (mw *MetaWrapper) XBatchDelAttr_ll(inode uint64, keys []string) error {
 	return nil
 }
 
-func (mw *MetaWrapper) XAttrsList_ll(inode uint64) ([]string, error) {
+func (mw *SnapShotMetaWrapper) XAttrsList_ll(inode uint64) ([]string, error) {
 	var err error
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
@@ -2022,7 +2037,7 @@ func (mw *MetaWrapper) XAttrsList_ll(inode uint64) ([]string, error) {
 	return keys, nil
 }
 
-func (mw *MetaWrapper) UpdateSummary_ll(parentIno uint64, filesInc int64, dirsInc int64, bytesInc int64) {
+func (mw *SnapShotMetaWrapper) UpdateSummary_ll(parentIno uint64, filesInc int64, dirsInc int64, bytesInc int64) {
 	if filesInc == 0 && dirsInc == 0 && bytesInc == 0 {
 		return
 	}
@@ -2040,7 +2055,7 @@ func (mw *MetaWrapper) UpdateSummary_ll(parentIno uint64, filesInc int64, dirsIn
 	return
 }
 
-func (mw *MetaWrapper) ReadDirOnly_ll(parentID uint64) ([]proto.Dentry, error) {
+func (mw *SnapShotMetaWrapper) ReadDirOnly_ll(parentID uint64) ([]proto.Dentry, error) {
 	parentMP := mw.getPartitionByInode(parentID)
 	if parentMP == nil {
 		return nil, syscall.ENOENT
@@ -2059,7 +2074,7 @@ type SummaryInfo struct {
 	Fbytes  int64
 }
 
-func (mw *MetaWrapper) GetSummary_ll(parentIno uint64, goroutineNum int32) (SummaryInfo, error) {
+func (mw *SnapShotMetaWrapper) GetSummary_ll(parentIno uint64, goroutineNum int32) (SummaryInfo, error) {
 	if goroutineNum > MaxSummaryGoroutineNum {
 		goroutineNum = MaxSummaryGoroutineNum
 	}
@@ -2110,7 +2125,7 @@ func (mw *MetaWrapper) GetSummary_ll(parentIno uint64, goroutineNum int32) (Summ
 	}
 }
 
-func (mw *MetaWrapper) getDentry(parentIno uint64, inodeCh chan<- uint64, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
+func (mw *SnapShotMetaWrapper) getDentry(parentIno uint64, inodeCh chan<- uint64, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
 	defer func() {
 		if newGoroutine {
 			atomic.AddInt32(currentGoroutineNum, -1)
@@ -2134,7 +2149,7 @@ func (mw *MetaWrapper) getDentry(parentIno uint64, inodeCh chan<- uint64, errCh 
 	}
 }
 
-func (mw *MetaWrapper) getDirSummary(summaryInfo *SummaryInfo, inodeCh <-chan uint64, errch chan<- error) {
+func (mw *SnapShotMetaWrapper) getDirSummary(summaryInfo *SummaryInfo, inodeCh <-chan uint64, errch chan<- error) {
 	var inodes []uint64
 	var keys []string
 	for inode := range inodeCh {
@@ -2182,7 +2197,7 @@ func (mw *MetaWrapper) getDirSummary(summaryInfo *SummaryInfo, inodeCh <-chan ui
 	return
 }
 
-func (mw *MetaWrapper) getSummaryOrigin(parentIno uint64, summaryCh chan<- SummaryInfo, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
+func (mw *SnapShotMetaWrapper) getSummaryOrigin(parentIno uint64, summaryCh chan<- SummaryInfo, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
 	defer func() {
 		if newGoroutine {
 			atomic.AddInt32(currentGoroutineNum, -1)
@@ -2226,7 +2241,7 @@ func (mw *MetaWrapper) getSummaryOrigin(parentIno uint64, summaryCh chan<- Summa
 	}
 }
 
-func (mw *MetaWrapper) RefreshSummary_ll(parentIno uint64, goroutineNum int32) error {
+func (mw *SnapShotMetaWrapper) RefreshSummary_ll(parentIno uint64, goroutineNum int32) error {
 	if goroutineNum > MaxSummaryGoroutineNum {
 		goroutineNum = MaxSummaryGoroutineNum
 	}
@@ -2249,7 +2264,7 @@ func (mw *MetaWrapper) RefreshSummary_ll(parentIno uint64, goroutineNum int32) e
 	return nil
 }
 
-func (mw *MetaWrapper) refreshSummary(parentIno uint64, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
+func (mw *SnapShotMetaWrapper) refreshSummary(parentIno uint64, errCh chan<- error, wg *sync.WaitGroup, currentGoroutineNum *int32, newGoroutine bool, goroutineNum int32) {
 	defer func() {
 		if newGoroutine {
 			atomic.AddInt32(currentGoroutineNum, -1)
@@ -2316,7 +2331,7 @@ func (mw *MetaWrapper) refreshSummary(parentIno uint64, errCh chan<- error, wg *
 	}
 }
 
-func (mw *MetaWrapper) BatchSetInodeQuota_ll(inodes []uint64, quotaId uint32) {
+func (mw *SnapShotMetaWrapper) BatchSetInodeQuota_ll(inodes []uint64, quotaId uint32) {
 	var wg sync.WaitGroup
 	var maxGoroutineNum int32 = MaxGoroutineNum
 	var curGoroutineNum int32 = 0
@@ -2348,11 +2363,11 @@ func (mw *MetaWrapper) BatchSetInodeQuota_ll(inodes []uint64, quotaId uint32) {
 	return
 }
 
-func (mw *MetaWrapper) GetPartitionByInodeId_ll(inodeId uint64) (mp *MetaPartition) {
+func (mw *SnapShotMetaWrapper) GetPartitionByInodeId_ll(inodeId uint64) (mp *MetaPartition) {
 	return mw.getPartitionByInode(inodeId)
 }
 
-func (mw *MetaWrapper) BatchDeleteInodeQuota_ll(inodes []uint64, quotaId uint32) {
+func (mw *SnapShotMetaWrapper) BatchDeleteInodeQuota_ll(inodes []uint64, quotaId uint32) {
 	var wg sync.WaitGroup
 	var maxGoroutineNum int32 = MaxGoroutineNum
 	var curGoroutineNum int32 = 0
@@ -2383,7 +2398,7 @@ func (mw *MetaWrapper) BatchDeleteInodeQuota_ll(inodes []uint64, quotaId uint32)
 	return
 }
 
-func (mw *MetaWrapper) GetInodeQuota_ll(inode uint64) (quotaInfos map[uint32]*proto.MetaQuotaInfo, err error) {
+func (mw *SnapShotMetaWrapper) GetInodeQuota_ll(inode uint64) (quotaInfos map[uint32]*proto.MetaQuotaInfo, err error) {
 	mp := mw.getPartitionByInode(inode)
 	if mp == nil {
 		err = fmt.Errorf("get partition by inode [%v] failed", inode)
@@ -2399,6 +2414,6 @@ func (mw *MetaWrapper) GetInodeQuota_ll(inode uint64) (quotaInfos map[uint32]*pr
 	return
 }
 
-func (mw *MetaWrapper) BatchModifyQuotaPath(changePathMap map[uint32]string) {
+func (mw *SnapShotMetaWrapper) BatchModifyQuotaPath(changePathMap map[uint32]string) {
 	mw.mc.AdminAPI().BatchModifyQuotaPath(mw.volname, changePathMap)
 }

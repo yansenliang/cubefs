@@ -15,6 +15,7 @@
 package proto
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -114,6 +115,8 @@ const (
 	OpRemoveMetaPartitionRaftMember uint8 = 0x47
 	OpMetaPartitionTryToLeader      uint8 = 0x48
 	OpMetaDelDirVer                 uint8 = 0x49
+	OpMetaListDirVer                uint8 = 0x4A
+	OpMetaCreateDirVer              uint8 = 0x4B
 
 	// Quota
 	OpMasterSetInodeQuota       uint8 = 0x50
@@ -246,6 +249,7 @@ const (
 	GetAllWatermarksDeadLineTime              = 60
 	DefaultClusterLoadFactor          float64 = 10
 	MultiVersionFlag                          = 0x80
+	DirVersionFlag                            = 0x40
 )
 
 // multi version operation
@@ -323,6 +327,12 @@ func NewPacketReqID() *Packet {
 	return p
 }
 
+func (p *Packet) SetVerInfo(ifo *DelVer) {
+	p.VerSeq = ifo.DelVel
+	p.DirVerList = ifo.Vers
+	return
+}
+
 func (p *Packet) GetCopy() *Packet {
 	newPacket := NewPacket()
 	newPacket.ReqID = p.ReqID
@@ -342,17 +352,17 @@ func (p *Packet) String() string {
 }
 
 // GetStoreType returns the store type.
-func (p *Packet) GetStoreType() (m string) {
-	switch p.ExtentType {
-	case TinyExtentType:
-		m = "TinyExtent"
-	case NormalExtentType:
-		m = "NormalExtent"
-	default:
-		m = "Unknown"
-	}
-	return
-}
+//func (p *Packet) GetStoreType() (m string) {
+//	switch p.ExtentType {
+//	case TinyExtentType:
+//		m = "TinyExtent"
+//	case NormalExtentType:
+//		m = "NormalExtent"
+//	default:
+//		m = "Unknown"
+//	}
+//	return
+//}
 
 func (p *Packet) GetOpMsgWithReqAndResult() (m string) {
 	return fmt.Sprintf("Req(%v)_(%v)_Result(%v)", p.ReqID, p.GetOpMsg(), p.GetResultMsg())
@@ -505,6 +515,10 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpMetaPartitionTryToLeader"
 	case OpMetaDelDirVer:
 		m = "OpMetaDelDirVer"
+	case OpMetaListDirVer:
+		m = "OpMetaListDirVer"
+	case OpMetaCreateDirVer:
+		m = "OpMetaCreateDirVer"
 	case OpDataPartitionTryToLeader:
 		m = "OpDataPartitionTryToLeader"
 	case OpMetaDeleteInode:
@@ -677,10 +691,68 @@ func (p *Packet) MarshalHeader(out []byte) {
 	binary.BigEndian.PutUint64(out[33:41], uint64(p.ExtentOffset))
 	binary.BigEndian.PutUint64(out[41:49], uint64(p.ReqID))
 	binary.BigEndian.PutUint64(out[49:util.PacketHeaderSize], p.KernelOffset)
-	if p.Opcode == OpRandomWriteVer || p.ExtentType&MultiVersionFlag > 0 {
+	if p.Opcode == OpRandomWriteVer || p.isVersionPkt() {
 		binary.BigEndian.PutUint64(out[util.PacketHeaderSize:util.PacketHeaderSize+8], p.VerSeq)
 	}
 	return
+}
+
+const verInfoCnt = 17
+
+func (p *Packet) MarshalVersionSlice() (data []byte, err error) {
+	items := p.DirVerList
+	cnt := len(items)
+	buff := bytes.NewBuffer(make([]byte, cnt*verInfoCnt+2))
+
+	if err := binary.Write(buff, binary.BigEndian, uint16(cnt)); err != nil {
+		return nil, err
+	}
+
+	for _, v := range items {
+		if err := binary.Write(buff, binary.BigEndian, v.Ver); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(buff, binary.BigEndian, v.DelTime); err != nil {
+			return nil, err
+		}
+		if err := binary.Write(buff, binary.BigEndian, v.Status); err != nil {
+			return nil, err
+		}
+	}
+
+	return buff.Bytes(), nil
+}
+
+func (p *Packet) UnmarshalVersionSlice(cnt int, d []byte) error {
+	items := make([]*VersionInfo, 0)
+
+	for idx := 0; idx < cnt; idx++ {
+		ti := idx * verInfoCnt
+		e := &VersionInfo{}
+		e.Ver = binary.BigEndian.Uint64(d[ti : ti+8])
+		e.Ver = binary.BigEndian.Uint64(d[ti+8 : ti+16])
+		e.Ver = binary.BigEndian.Uint64(d[ti+16:])
+		items = append(items, e)
+	}
+	p.DirVerList = items
+	return nil
+}
+
+func (p *Packet) isVersionPkt() bool {
+	if p.ExtentType&MultiVersionFlag == MultiVersionFlag {
+		return true
+	}
+	if p.ExtentType&DirVersionFlag == DirVersionFlag {
+		return true
+	}
+	return false
+}
+
+func (p *Packet) isDirVersion() bool {
+	if p.ExtentType&DirVersionFlag == DirVersionFlag {
+		return true
+	}
+	return false
 }
 
 // UnmarshalHeader unmarshals the packet header.
@@ -726,24 +798,24 @@ func (p *Packet) UnmarshalData(v interface{}) error {
 }
 
 // WriteToNoDeadLineConn writes through the connection without deadline.
-func (p *Packet) WriteToNoDeadLineConn(c net.Conn) (err error) {
-	header, err := Buffers.Get(util.PacketHeaderSize)
-	if err != nil {
-		header = make([]byte, util.PacketHeaderSize)
-	}
-	defer Buffers.Put(header)
-
-	p.MarshalHeader(header)
-	if _, err = c.Write(header); err == nil {
-		if _, err = c.Write(p.Arg[:int(p.ArgLen)]); err == nil {
-			if p.Data != nil {
-				_, err = c.Write(p.Data[:p.Size])
-			}
-		}
-	}
-
-	return
-}
+//func (p *Packet) WriteToNoDeadLineConn(c net.Conn) (err error) {
+//	header, err := Buffers.Get(util.PacketHeaderSize)
+//	if err != nil {
+//		header = make([]byte, util.PacketHeaderSize)
+//	}
+//	defer Buffers.Put(header)
+//
+//	p.MarshalHeader(header)
+//	if _, err = c.Write(header); err == nil {
+//		if _, err = c.Write(p.Arg[:int(p.ArgLen)]); err == nil {
+//			if p.Data != nil {
+//				_, err = c.Write(p.Data[:p.Size])
+//			}
+//		}
+//	}
+//
+//	return
+//}
 
 // WriteToConn writes through the given connection.
 func (p *Packet) WriteToConn(c net.Conn) (err error) {
@@ -751,6 +823,7 @@ func (p *Packet) WriteToConn(c net.Conn) (err error) {
 	if p.Opcode == OpRandomWriteVer || p.ExtentType&MultiVersionFlag > 0 {
 		headSize = util.PacketHeaderVerSize
 	}
+
 	log.LogDebugf("packet opcode %v header size %v extentype %v conn %v", p.Opcode, headSize, p.ExtentType, c)
 	header, err := Buffers.Get(headSize)
 	if err != nil {
@@ -761,6 +834,20 @@ func (p *Packet) WriteToConn(c net.Conn) (err error) {
 	c.SetWriteDeadline(time.Now().Add(WriteDeadlineTime * time.Second))
 	p.MarshalHeader(header)
 	if _, err = c.Write(header); err == nil {
+		// write dir version info.
+		if p.isDirVersion() {
+			d, err1 := p.MarshalVersionSlice()
+			if err1 != nil {
+				log.LogErrorf("MarshalVersionSlice: marshal version ifo failed, err %s", err1.Error())
+				return err1
+			}
+
+			_, err = c.Write(d)
+			if err != nil {
+				return err
+			}
+		}
+
 		log.LogDebugf("packet opcode %v header size %v extentype %v size %v", p.Opcode, headSize, p.ExtentType, len(header))
 		if _, err = c.Write(p.Arg[:int(p.ArgLen)]); err == nil {
 			log.LogDebugf("packet opcode %v header size %v extentype %v arg size %v", p.Opcode, headSize, p.ExtentType, p.ArgLen)
@@ -809,12 +896,31 @@ func (p *Packet) ReadFromConnWithVer(c net.Conn, timeoutSec int) (err error) {
 
 	log.LogDebugf("action[ReadFromConnWithVer] verseq %v", p.VerSeq)
 
-	if p.ExtentType&MultiVersionFlag > 0 {
+	if p.isVersionPkt() {
 		ver := make([]byte, 8)
 		if _, err = io.ReadFull(c, ver); err != nil {
 			return
 		}
 		p.VerSeq = binary.BigEndian.Uint64(ver)
+	}
+
+	if p.isDirVersion() {
+		cntByte := make([]byte, 2)
+		if _, err = io.ReadFull(c, cntByte); err != nil {
+			return err
+		}
+		cnt := binary.BigEndian.Uint16(cntByte)
+		verData := make([]byte, cnt*verInfoCnt)
+		if _, err = io.ReadFull(c, verData); err != nil {
+			log.LogWarnf("ReadFromConnWithVer: read ver slice from conn failed, err %s", err.Error())
+			return err
+		}
+
+		err = p.UnmarshalVersionSlice(int(cnt), verData)
+		if err != nil {
+			log.LogWarnf("ReadFromConnWithVer: unmarshal ver slice failed, err %s", err.Error())
+			return err
+		}
 	}
 
 	if p.ArgLen > 0 {
