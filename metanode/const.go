@@ -172,6 +172,7 @@ const (
 const (
 	opCreateDentryEx = 10001
 	opSetInodeLock   = 10002
+	opFSMSetXAttrEx  = 10010
 )
 
 var (

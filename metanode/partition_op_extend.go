@@ -76,11 +76,23 @@ func (mp *metaPartition) UpdateXAttr(req *proto.UpdateXAttrRequest, p *Packet) (
 func (mp *metaPartition) SetXAttr(req *proto.SetXAttrRequest, p *Packet) (err error) {
 	var extend = NewExtend(req.Inode)
 	extend.Put([]byte(req.Key), []byte(req.Value), mp.verSeq)
-	if _, err = mp.putExtend(opFSMSetXAttr, extend); err != nil {
+
+	if !req.OverWrite {
+		if _, err = mp.putExtend(opFSMSetXAttr, extend); err != nil {
+			p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
+			return
+		}
+		p.PacketOkReply()
+		return
+	}
+
+	resp, err := mp.putExtend(opFSMSetXAttrEx, extend)
+	if err != nil {
 		p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
 		return
 	}
-	p.PacketOkReply()
+
+	p.ResultCode = resp.(uint8)
 	return
 }
 
