@@ -642,7 +642,7 @@ func formatDataNodeDetail(dn *proto.DataNodeInfo, rowTable bool) string {
 	sb.WriteString(fmt.Sprintf("  Report time         : %v\n", formatTimeToString(dn.ReportTime)))
 	sb.WriteString(fmt.Sprintf("  Partition count     : %v\n", dn.DataPartitionCount))
 	sb.WriteString(fmt.Sprintf("  Bad disks           : %v\n", dn.BadDisks))
-	sb.WriteString(fmt.Sprintf("  Persist partitions  : %v\n", dn.PersistenceDataPartitions))
+	sb.WriteString(fmt.Sprintf("  PersistDirDelVerInfo partitions  : %v\n", dn.PersistenceDataPartitions))
 	return sb.String()
 }
 
@@ -669,7 +669,7 @@ func formatMetaNodeDetail(mn *proto.MetaNodeInfo, rowTable bool) string {
 	sb.WriteString(fmt.Sprintf("  IsActive            : %v\n", formatNodeStatus(mn.IsActive)))
 	sb.WriteString(fmt.Sprintf("  Report time         : %v\n", formatTimeToString(mn.ReportTime)))
 	sb.WriteString(fmt.Sprintf("  Partition count     : %v\n", mn.MetaPartitionCount))
-	sb.WriteString(fmt.Sprintf("  Persist partitions  : %v\n", mn.PersistenceMetaPartitions))
+	sb.WriteString(fmt.Sprintf("  PersistDirDelVerInfo partitions  : %v\n", mn.PersistenceMetaPartitions))
 	return sb.String()
 }
 

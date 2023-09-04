@@ -481,7 +481,7 @@ type LayerInfo struct {
 
 type DirVerItem struct {
 	DirSnapIno uint64 `json:"ino"`
-	RootIno    uint64 `json:"rootIno"`
+	RootIno    uint64 `json:"RootIno"`
 	Ver        uint64 `json:"ver"`
 }
 
