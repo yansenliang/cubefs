@@ -248,7 +248,7 @@ run_test() {
 #    go test $MODFLAGS -ldflags "${LDFlags}" -cover ./metanode
 
 #    go test -run TestTruncateAndDel -cover -v -coverprofile=cover.output $(go list ./... |grep meta) | tee cubefs_unittest.output
-    go test -cover -v -coverprofile=cover.output $(go list ./... |grep meta) | tee cubefs_unittest.output
+    go test -run TestMarshalDirVer -cover -v -coverprofile=cover.output $(go list ./... |grep meta) | tee cubefs_unittest.output
 
 #    go test -cover -v -coverprofile=cover.output $(go list ./... | grep -v depends | grep -v master | grep  -v util) | tee cubefs_unittest.output
     ret=$?

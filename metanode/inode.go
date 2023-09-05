@@ -70,6 +70,18 @@ type InodeDirVer struct {
 	DirVerList []*proto.VersionInfo
 }
 
+func (iDr *InodeDirVer) printDirVerList() (str string) {
+	str = fmt.Sprintf("dir len:%v|", len(iDr.DirVerList))
+	for i := 0; i < len(iDr.DirVerList); i++ {
+		str = str + fmt.Sprintf("idx(%v)(ver %v, DelTime %v, status %v)|", i, iDr.DirVerList[i].Ver, iDr.DirVerList[i].DelTime, iDr.DirVerList[i].Status)
+	}
+	return
+}
+
+func (iDr *InodeDirVer) String() string {
+	return fmt.Sprintf("InodeDirVer{ino{%v},DirVer{%v}", iDr.Ino, iDr.printDirVerList())
+}
+
 type Inode struct {
 	sync.RWMutex
 	Inode      uint64 // Inode ID
@@ -113,19 +125,7 @@ func NewMultiSnap(seq uint64) *InodeMultiSnap {
 	}
 }
 
-func (i *Inode) setDirVer(p *Packet) {
-	if p.VerSeq == 0 && i.multiSnap == nil {
-		return
-	}
-	if i.multiSnap == nil {
-		i.multiSnap = NewMultiSnap(p.VerSeq)
-	} else {
-		i.multiSnap.verSeq = p.VerSeq
-	}
-	return
-}
-
-func (i *Inode) setVolVer(seq uint64) {
+func (i *Inode) setVer(seq uint64) {
 	if seq == 0 && i.multiSnap == nil {
 		return
 	}
@@ -517,6 +517,7 @@ func (i *Inode) Unmarshal(raw []byte) (err error) {
 	if err = binary.Read(buff, binary.BigEndian, &keyLen); err != nil {
 		return
 	}
+	log.LogDebugf("inode umarshal get keyLen %v", keyLen)
 	keyBytes := make([]byte, keyLen)
 	if _, err = buff.Read(keyBytes); err != nil {
 		return
@@ -542,21 +543,23 @@ func (i *InodeDirVer) Marshal() (result []byte, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = binary.Write(buff, binary.BigEndian, uint32(len(bs))); err != nil {
-		return nil, err
-	}
 	if _, err := buff.Write(bs); err != nil {
 		return nil, err
 	}
-	if err = binary.Write(buff, binary.BigEndian, uint32(len(i.DirVerList))); err != nil {
+	if err = binary.Write(buff, binary.BigEndian, uint32(len(i.DirVerList)*proto.VersionSimpleSize)); err != nil {
 		return nil, err
 	}
 	if len(i.DirVerList) > 0 {
-		if err = binary.Write(buff, binary.BigEndian, uint32(len(i.DirVerList)*proto.VersionSimpleSize)); err != nil {
-			return nil, err
-		}
-		if err = binary.Write(buff, binary.BigEndian, i.DirVerList); err != nil {
-			return nil, err
+		for n := 0; n < len(i.DirVerList); n++ {
+			if err = binary.Write(buff, binary.BigEndian, i.DirVerList[n].Ver); err != nil {
+				return nil, err
+			}
+			if err = binary.Write(buff, binary.BigEndian, i.DirVerList[n].Status); err != nil {
+				return nil, err
+			}
+			if err = binary.Write(buff, binary.BigEndian, i.DirVerList[n].DelTime); err != nil {
+				return nil, err
+			}
 		}
 	}
 	result = buff.Bytes()
@@ -565,26 +568,48 @@ func (i *InodeDirVer) Marshal() (result []byte, err error) {
 
 // Unmarshal unmarshals the inode.
 func (i *InodeDirVer) Unmarshal(raw []byte) (err error) {
+	i.Ino = NewInode(0, 0)
 	buff := bytes.NewBuffer(raw)
-	var dataLen uint32
-	if err = binary.Read(buff, binary.BigEndian, &dataLen); err != nil {
-		return
-	}
-	data := make([]byte, int(dataLen))
-	if _, err = buff.Read(data); err != nil {
-		return
-	}
 
-	if err = i.Ino.Unmarshal(data); err != nil {
+	var (
+		keyLen uint32
+		valLen uint32
+	)
+	if err = binary.Read(buff, binary.BigEndian, &keyLen); err != nil {
 		return
 	}
+	keyBytes := make([]byte, keyLen)
+	if _, err = buff.Read(keyBytes); err != nil {
+		return
+	}
+	if err = i.Ino.UnmarshalKey(keyBytes); err != nil {
+		return
+	}
+	if err = binary.Read(buff, binary.BigEndian, &valLen); err != nil {
+		return
+	}
+	valBytes := make([]byte, valLen)
+	if _, err = buff.Read(valBytes); err != nil {
+		return
+	}
+	err = i.Ino.UnmarshalValue(valBytes)
 
-	if err = binary.Read(buff, binary.BigEndian, &dataLen); err != nil {
+	var versionLen uint32
+	if err = binary.Read(buff, binary.BigEndian, &versionLen); err != nil {
 		return
 	}
-	i.DirVerList = make([]*proto.VersionInfo, dataLen/uint32(proto.VersionSimpleSize))
-	if err = binary.Read(buff, binary.BigEndian, &i.DirVerList); err != nil {
-		return
+	for n := 0; n < int(versionLen)/proto.VersionSimpleSize; n++ {
+		verInfo := &proto.VersionInfo{}
+		if err = binary.Read(buff, binary.BigEndian, &verInfo.Ver); err != nil {
+			return
+		}
+		if err = binary.Read(buff, binary.BigEndian, &verInfo.DelTime); err != nil {
+			return
+		}
+		if err = binary.Read(buff, binary.BigEndian, &verInfo.Status); err != nil {
+			return
+		}
+		i.DirVerList = append(i.DirVerList, verInfo)
 	}
 
 	return
@@ -870,7 +895,7 @@ func (i *Inode) UnmarshalInodeValue(buff *bytes.Buffer) (err error) {
 			return
 		}
 		if seq != 0 {
-			i.setVolVer(seq)
+			i.setVer(seq)
 		}
 	}
 
@@ -1229,7 +1254,7 @@ func (inode *Inode) unlinkVerInList(ino *Inode, verlist []*proto.VersionInfo) (e
 			return
 		}
 		log.LogDebugf("action[unlinkVerInList] inode %v update current verSeq %v to %v", inode.Inode, inode.getVer(), nVerSeq)
-		inode.setVolVer(nVerSeq)
+		inode.setVer(nVerSeq)
 		return
 	} else {
 		// don't unlink if no version satisfied
@@ -1431,7 +1456,7 @@ func (i *Inode) getAndDelVer(dVer uint64, verlist []*proto.VersionInfo) (delExte
 				log.LogDebugf("action[getAndDelVer] ino %v  get next version in verList update ver from %v to %v.And delete exts with ver %v",
 					i.Inode, i.multiSnap.multiVersions[id].getVer(), nVerSeq, dVer)
 
-				i.multiSnap.multiVersions[id].setVolVer(nVerSeq)
+				i.multiSnap.multiVersions[id].setVer(nVerSeq)
 				delExtents, ino = i.MultiLayerClearExtByVer(id, nVerSeq), i.multiSnap.multiVersions[id]
 				if len(i.multiSnap.multiVersions[id].Extents.eks) != 0 {
 					log.LogDebugf("action[getAndDelVer] ino %v   after clear self still have ext and left", i.Inode)
@@ -1474,7 +1499,7 @@ func (i *Inode) CreateUnlinkVer(mpVer uint64, nVer uint64) {
 	log.LogDebugf("action[CreateUnlinkVer] inode %v mpVer %v nVer %v", i.Inode, mpVer, nVer)
 	//inode copy not include multi ver array
 	ino := i.CopyDirectly().(*Inode)
-	ino.setVolVer(nVer)
+	ino.setVer(nVer)
 
 	i.Extents = NewSortedExtents()
 	i.ObjExtents = NewSortedObjExtents()
@@ -1490,7 +1515,7 @@ func (i *Inode) CreateUnlinkVer(mpVer uint64, nVer uint64) {
 		i.multiSnap.multiVersions = append([]*Inode{ino}, i.multiSnap.multiVersions...)
 	}
 
-	i.setVolVer(mpVer)
+	i.setVer(mpVer)
 	i.Unlock()
 }
 
@@ -1499,8 +1524,8 @@ func (i *Inode) CreateVer(ver uint64) {
 	ino := i.CopyDirectly().(*Inode)
 	ino.Extents = NewSortedExtents()
 	ino.ObjExtents = NewSortedObjExtents()
-	ino.setVolVer(i.getVer())
-	i.setVolVer(ver)
+	ino.setVer(i.getVer())
+	i.setVer(ver)
 
 	i.Lock()
 	defer i.Unlock()
@@ -1578,7 +1603,7 @@ func (i *Inode) CreateLowerVersion(curVer uint64, verlist []*proto.VersionInfo) 
 	ino := i.CopyDirectly().(*Inode)
 	ino.Extents = NewSortedExtents()
 	ino.ObjExtents = NewSortedObjExtents()
-	ino.setVolVer(nextVer)
+	ino.setVer(nextVer)
 
 	log.LogDebugf("action[CreateLowerVersion] inode %v create new version [%v] and store old one [%v], hist len [%v]",
 		i.Inode, ino, i.getVer(), i.getLayerLen())

@@ -199,7 +199,7 @@ func testCreateInode(t *testing.T, mode uint32) *Inode {
 	}
 
 	ino := NewInode(inoID, mode)
-	ino.setVolVer(mp.verSeq)
+	ino.setVer(mp.verSeq)
 	if t != nil {
 		t.Logf("testCreateInode ino %v", ino)
 	}
@@ -649,7 +649,7 @@ func testDelDirSnapshotVersion(t *testing.T, verSeq uint64, dirIno *Inode, dirDe
 	//testPrintAllDentry(t)
 
 	rDirIno := dirIno.Copy().(*Inode)
-	rDirIno.setVolVer(verSeq)
+	rDirIno.setVer(verSeq)
 
 	rspDelIno := mp.fsmUnlinkInode(rDirIno)
 
@@ -682,7 +682,7 @@ func testDelDirSnapshotVersion(t *testing.T, verSeq uint64, dirIno *Inode, dirDe
 		if ino.Status != proto.OpOk {
 			panic(nil)
 		}
-		rino.setVolVer(verSeq)
+		rino.setVer(verSeq)
 		rspDelIno = mp.fsmUnlinkInode(rino)
 
 		assert.True(t, rspDelIno.Status == proto.OpOk || rspDelIno.Status == proto.OpNotExistErr)
@@ -887,7 +887,7 @@ func TestTruncateAndDel(t *testing.T) {
 		Size:       500,
 		ModifyTime: time.Now().Unix(),
 	}
-	ino.setVolVer(mp.verSeq) // fsm operation should set verSeq because there's no handle process to set ino's seq
+	ino.setVer(mp.verSeq) // fsm operation should set verSeq because there's no handle process to set ino's seq
 	mp.fsmExtentsTruncate(ino)
 	log.LogDebugf("TestTruncate start")
 	t.Logf("TestTruncate. create new snapshot seq %v,%v,file verlist size %v [%v]", seq1, seq2, len(fileIno.multiSnap.multiVersions), fileIno.multiSnap.multiVersions)
@@ -909,7 +909,7 @@ func TestTruncateAndDel(t *testing.T) {
 	log.LogDebugf("TestTruncate start")
 	testCreateVer() // seq2 IS commited, seq3 not
 	log.LogDebugf("TestTruncate start")
-	ino.setVolVer(0) // unlink top layer
+	ino.setVer(0) // unlink top layer
 	mp.fsmUnlinkInode(ino)
 	log.LogDebugf("TestTruncate start")
 	assert.True(t, 3 == len(fileIno.multiSnap.multiVersions))
@@ -1190,4 +1190,36 @@ func TestSplitKey(t *testing.T) {
 	ext.Size = 2 * util.PageSize
 	_, invalid = NewPacketToDeleteExtent(dp, ext)
 	assert.True(t, invalid == false)
+}
+
+func TestMarshalInodeDirVer(t *testing.T) {
+	inoVer := &InodeDirVer{
+		Ino:        NewInode(10, 2),
+		DirVerList: []*proto.VersionInfo{{Ver: 10}, {Ver: 11}},
+	}
+	val, err := inoVer.Marshal()
+	assert.True(t, err == nil)
+	assert.True(t, len(val) > 0)
+
+	inoVer2 := &InodeDirVer{}
+	err = inoVer2.Unmarshal(val)
+	assert.True(t, err == nil)
+	assert.True(t, reflect.DeepEqual(inoVer, inoVer2))
+}
+
+func TestMarshalDentryDirVer(t *testing.T) {
+	denVer := &DirVerDentry{
+		Dentry: &Dentry{
+			Inode: 10,
+		},
+		VerList: []*proto.VersionInfo{{Ver: 10}, {Ver: 11}},
+	}
+	val, err := denVer.Marshal()
+	assert.True(t, err == nil)
+	assert.True(t, len(val) > 0)
+
+	denVer2 := &DirVerDentry{}
+	err = denVer2.Unmarshal(val)
+	assert.True(t, err == nil)
+	assert.True(t, reflect.DeepEqual(denVer, denVer2))
 }
