@@ -482,7 +482,7 @@ func (e *Extent) DeleteTiny(offset, size int64) (hasDelete bool, err error) {
 	if int(size)%util.PageSize != 0 {
 		size += int64(util.PageSize - int(size)%util.PageSize)
 	}
-	if int(size)%PageSize != 0 {
+	if int(size)%util.PageSize != 0 {
 		return false, ParameterMismatchError
 	}
 

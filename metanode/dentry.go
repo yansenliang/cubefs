@@ -781,8 +781,7 @@ func (d *Dentry) MarshalValue() []byte {
 		panic(err)
 	}
 
-	k = buff.Bytes()
-	return
+	return buff.Bytes()
 }
 
 func (d *Dentry) UnmarshalValue(val []byte) (err error) {
