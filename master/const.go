@@ -251,12 +251,13 @@ const (
 	opSyncAcl          uint32 = 0x36
 	opSyncUid          uint32 = 0x37
 
-	opSyncAllocQuotaID uint32 = 0x40
-	opSyncSetQuota     uint32 = 0x41
-	opSyncDeleteQuota  uint32 = 0x42
-	opSyncAllocFileId  uint32 = 0x43
-	opSyncMulitVersion uint32 = 0x53
-	opSyncDirVersion   uint32 = 0x54
+	opSyncAllocQuotaID  uint32 = 0x40
+	opSyncSetQuota      uint32 = 0x41
+	opSyncDeleteQuota   uint32 = 0x42
+	opSyncAllocFileId   uint32 = 0x43
+	opSyncMulitVersion  uint32 = 0x53
+	opSyncDirVersion    uint32 = 0x54
+	opSyncDirDelVerInfo uint32 = 0x54
 )
 
 const (
@@ -309,5 +310,7 @@ const (
 	quotaPrefix      = keySeparator + "quota" + keySeparator
 	lcNodePrefix     = keySeparator + lcNodeAcronym + keySeparator
 	lcConfPrefix     = keySeparator + lcConfigurationAcronym + keySeparator
-	DirVerPrefix     = keySeparator + "dirVer" + keySeparator
+
+	DirVerPrefix        = keySeparator + "dirVer" + keySeparator
+	DirVerDelInfoPrefix = keySeparator + "dirVerDel" + keySeparator
 )
