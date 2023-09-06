@@ -351,19 +351,6 @@ func (p *Packet) String() string {
 		p.ReqID, p.GetOpMsg(), p.PartitionID, p.GetResultMsg(), p.ExtentID, p.ExtentOffset, p.KernelOffset, p.ExtentType, p.VerSeq)
 }
 
-// GetStoreType returns the store type.
-//func (p *Packet) GetStoreType() (m string) {
-//	switch p.ExtentType {
-//	case TinyExtentType:
-//		m = "TinyExtent"
-//	case NormalExtentType:
-//		m = "NormalExtent"
-//	default:
-//		m = "Unknown"
-//	}
-//	return
-//}
-
 func (p *Packet) GetOpMsgWithReqAndResult() (m string) {
 	return fmt.Sprintf("Req(%v)_(%v)_Result(%v)", p.ReqID, p.GetOpMsg(), p.GetResultMsg())
 }
@@ -702,8 +689,7 @@ const verInfoCnt = 17
 func (p *Packet) MarshalVersionSlice() (data []byte, err error) {
 	items := p.DirVerList
 	cnt := len(items)
-	buff := bytes.NewBuffer(make([]byte, cnt*verInfoCnt+2))
-
+	buff := bytes.NewBuffer(make([]byte, 0, 2*cnt*verInfoCnt))
 	if err := binary.Write(buff, binary.BigEndian, uint16(cnt)); err != nil {
 		return nil, err
 	}
@@ -748,7 +734,7 @@ func (p *Packet) isVersionPkt() bool {
 	return false
 }
 
-func (p *Packet) isDirVersion() bool {
+func (p *Packet) IsDirVersion() bool {
 	if p.ExtentType&DirVersionFlag == DirVersionFlag {
 		return true
 	}
@@ -820,11 +806,11 @@ func (p *Packet) UnmarshalData(v interface{}) error {
 // WriteToConn writes through the given connection.
 func (p *Packet) WriteToConn(c net.Conn) (err error) {
 	headSize := util.PacketHeaderSize
-	if p.Opcode == OpRandomWriteVer || p.ExtentType&MultiVersionFlag > 0 {
+	if p.Opcode == OpRandomWriteVer || p.isVersionPkt() {
 		headSize = util.PacketHeaderVerSize
 	}
 
-	log.LogDebugf("packet opcode %v header size %v extentype %v conn %v", p.Opcode, headSize, p.ExtentType, c)
+	log.LogDebugf("packet opcode %v header size %v extentype %v conn %v", p.GetOpMsg(), headSize, p.ExtentType, c.RemoteAddr())
 	header, err := Buffers.Get(headSize)
 	if err != nil {
 		header = make([]byte, headSize)
@@ -835,7 +821,7 @@ func (p *Packet) WriteToConn(c net.Conn) (err error) {
 	p.MarshalHeader(header)
 	if _, err = c.Write(header); err == nil {
 		// write dir version info.
-		if p.isDirVersion() {
+		if p.IsDirVersion() {
 			d, err1 := p.MarshalVersionSlice()
 			if err1 != nil {
 				log.LogErrorf("MarshalVersionSlice: marshal version ifo failed, err %s", err1.Error())
@@ -848,12 +834,12 @@ func (p *Packet) WriteToConn(c net.Conn) (err error) {
 			}
 		}
 
-		log.LogDebugf("packet opcode %v header size %v extentype %v size %v", p.Opcode, headSize, p.ExtentType, len(header))
+		log.LogDebugf("packet opcode %v header size %v extentype %v size %v", p.GetOpMsg(), headSize, p.ExtentType, len(header))
 		if _, err = c.Write(p.Arg[:int(p.ArgLen)]); err == nil {
-			log.LogDebugf("packet opcode %v header size %v extentype %v arg size %v", p.Opcode, headSize, p.ExtentType, p.ArgLen)
+			log.LogDebugf("packet opcode %v header size %v extentype %v arg size %v", p.GetOpMsg(), headSize, p.ExtentType, p.ArgLen)
 			if p.Data != nil && p.Size != 0 {
 				_, err = c.Write(p.Data[:p.Size])
-				log.LogDebugf("packet opcode %v header size %v extentype %v data size %v", p.Opcode, headSize, p.ExtentType, p.Size)
+				log.LogDebugf("packet opcode %v header size %v extentype %v data size %v", p.GetOpMsg(), headSize, p.ExtentType, p.Size)
 			}
 		}
 	}
@@ -894,7 +880,7 @@ func (p *Packet) ReadFromConnWithVer(c net.Conn, timeoutSec int) (err error) {
 		return
 	}
 
-	log.LogDebugf("action[ReadFromConnWithVer] verseq %v", p.VerSeq)
+	log.LogDebugf("action[ReadFromConnWithVer] op %s verseq %v, extType %d", p.GetOpMsg(), p.VerSeq, p.ExtentType)
 
 	if p.isVersionPkt() {
 		ver := make([]byte, 8)
@@ -904,12 +890,14 @@ func (p *Packet) ReadFromConnWithVer(c net.Conn, timeoutSec int) (err error) {
 		p.VerSeq = binary.BigEndian.Uint64(ver)
 	}
 
-	if p.isDirVersion() {
+	if p.IsDirVersion() {
 		cntByte := make([]byte, 2)
 		if _, err = io.ReadFull(c, cntByte); err != nil {
 			return err
 		}
 		cnt := binary.BigEndian.Uint16(cntByte)
+		log.LogDebugf("action[ReadFromConnWithVer] op %s verseq %v, extType %d, cnt %d",
+			p.GetOpMsg(), p.VerSeq, p.ExtentType, cnt)
 		verData := make([]byte, cnt*verInfoCnt)
 		if _, err = io.ReadFull(c, verData); err != nil {
 			log.LogWarnf("ReadFromConnWithVer: read ver slice from conn failed, err %s", err.Error())
@@ -1112,10 +1100,7 @@ func (p *Packet) setPacketPrefix() {
 
 // IsForwardPkt returns if the packet is the forward packet (a packet that will be forwarded to the followers).
 func (p *Packet) IsDirSnapshotOperate() bool {
-	if p.VerSeq > 0 && len(p.DirVerList) > 0 {
-		return true
-	}
-	return false
+	return p.IsDirVersion()
 }
 
 // IsForwardPkt returns if the packet is the forward packet (a packet that will be forwarded to the followers).

@@ -74,8 +74,7 @@ func (mp *metaPartition) fsmTxCreateDentry(txDentry *TxDentry, forceUpdate bool)
 func (mp *metaPartition) fsmCreateDentry(dentry *Dentry,
 	forceUpdate bool) (status uint8) {
 	status = proto.OpOk
-	log.LogDebugf("action[fsmCreateDentry] ParentId [%v], dentry name [%v], inode [%v], verseqFiled [%v], verseq [%v]",
-		dentry.ParentId, dentry.Name, dentry.Inode, dentry.getSeqFiled(), dentry.getVerSeq())
+	log.LogDebugf("action[fsmCreateDentry] dentry %s", dentry.String())
 	var parIno *Inode
 	if !forceUpdate {
 		item := mp.inodeTree.CopyGet(NewInode(dentry.ParentId, 0))

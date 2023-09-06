@@ -63,7 +63,7 @@ func (mp *metaPartition) ExtentAppend(req *proto.AppendExtentKeyRequest, p *Pack
 func (mp *metaPartition) buildAndSubmitInoPacket(ino *Inode, opCode uint32, dirOpCode uint32, p *Packet) (resp interface{}, err error) {
 	var val []byte
 	var opFlag uint32
-	if len(p.DirVerList) > 0 {
+	if p.IsDirVersion() {
 		dirInode := &InodeDirVer{
 			Ino:        ino,
 			DirVerList: p.DirVerList,
@@ -157,7 +157,7 @@ func (mp *metaPartition) ExtentAppendWithCheck(req *proto.AppendExtentKeyWithChe
 		opFlag = opFSMExtentSplit
 	}
 	var resp interface{}
-	if resp, err = mp.buildAndSubmitInoPacket(ino, opDirFlag, opFlag, p); err != nil {
+	if resp, err = mp.buildAndSubmitInoPacket(ino, opFlag, opDirFlag, p); err != nil {
 		return
 	}
 

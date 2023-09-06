@@ -1097,7 +1097,11 @@ func (i *Inode) RestoreExts2NextLayer(delExtentsOrigin []proto.ExtentKey, idx in
 }
 
 func (inode *Inode) unlinkTopLayer(ino *Inode, verlist []*proto.VersionInfo) (ext2Del []proto.ExtentKey, doMore bool, status uint8) {
-	currVer := verlist[len(verlist)-1].Ver
+	currVer := uint64(0)
+	if len(verlist) > 0 {
+		currVer = verlist[len(verlist)-1].Ver
+	}
+
 	// if there's no snapshot itself, nor have snapshot after inode's ver then need unlink directly and make no snapshot
 	// just move to upper layer, the behavior looks like that the snapshot be dropped
 	log.LogDebugf("action[unlinkTopLayer] mpVer %v check if have snapshot depends on the deleitng ino %v (with no snapshot itself) found seq %v, verlist %v",
