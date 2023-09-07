@@ -64,6 +64,7 @@ func (mp *metaPartition) buildAndSubmitInoPacket(ino *Inode, opCode uint32, dirO
 	var val []byte
 	var opFlag uint32
 	if p.IsDirVersion() {
+		ino.setVer(p.VerSeq)
 		dirInode := &InodeDirVer{
 			Ino:        ino,
 			DirVerList: p.DirVerList,
