@@ -291,6 +291,7 @@ func (c *Cluster) scheduleTask() {
 	c.scheduleToCheckDataReplicas()
 	c.scheduleToLcScan()
 	c.scheduleToSnapshotDelVerScan()
+	c.scheduleToCheckDirSnapDeletedVer()
 }
 
 func (c *Cluster) masterAddr() (addr string) {
@@ -4004,4 +4005,29 @@ func (c *Cluster) DelBucketLifecycle(VolName string) {
 	c.lcMgr.DelS3BucketLifecycle(VolName)
 	log.LogInfof("action[DelS3BucketLifecycle],clusterID[%v] vol:%v", c.Name, VolName)
 	return
+}
+
+func (c *Cluster) checkDirSnapDeletedVer() {
+	vols := c.allVols()
+	for _, vol := range vols {
+		if !proto.IsHot(vol.VolType) {
+			continue
+		}
+
+		vol.DirSnapVersionMgr.CheckDirDeletedVer()
+	}
+}
+
+func (c *Cluster) scheduleToCheckDirSnapDeletedVer() {
+	waitTime := time.Second * defaultIntervalToCheck
+
+	go func() {
+		for {
+			if c.partition != nil && c.partition.IsRaftLeader() {
+				c.checkDirSnapDeletedVer()
+			}
+
+			time.Sleep(waitTime)
+		}
+	}()
 }
