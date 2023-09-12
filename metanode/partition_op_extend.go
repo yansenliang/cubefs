@@ -77,7 +77,7 @@ func (mp *metaPartition) SetXAttr(req *proto.SetXAttrRequest, p *Packet) (err er
 	var extend = NewExtend(req.Inode)
 	extend.Put([]byte(req.Key), []byte(req.Value), mp.verSeq)
 
-	if !req.OverWrite {
+	if req.OverWrite {
 		if _, err = mp.putExtend(opFSMSetXAttr, extend); err != nil {
 			p.PacketErrorWithBody(proto.OpErr, []byte(err.Error()))
 			return
