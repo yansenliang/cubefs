@@ -239,6 +239,7 @@ const (
 	OpVersionOperation uint8 = 0xD5
 	OpSplitMarkDelete  uint8 = 0xD6
 	OpInternalErr      uint8 = 0xD7
+	OpSnapshotConflict uint8 = 0xD8
 )
 
 const (
@@ -367,6 +368,8 @@ func (p *Packet) GetOpMsg() (m string) {
 		m = "OpMarkDelete"
 	case OpInternalErr:
 		m = "OpInternalErr"
+	case OpSnapshotConflict:
+		m = "OpSnapshotConflict"
 	case OpWrite:
 		m = "OpWrite"
 	case OpTryWriteAppend:
