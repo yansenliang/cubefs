@@ -75,6 +75,11 @@ const (
 	//snapshot
 	SnapshotReadVerSeq
 
+	PrefetchThread
+	LocalIP
+	MaxBackground
+	CongestionThresh
+
 	MaxMountOption
 )
 
@@ -166,6 +171,11 @@ func InitMountOptions(opts []MountOption) {
 
 	opts[FileSystemName] = MountOption{"fileSystemName", "The explicit name of the filesystem", "", ""}
 	opts[SnapshotReadVerSeq] = MountOption{"snapshotReadSeq", "Snapshot read seq", "", int64(0)} //default false
+
+	opts[PrefetchThread] = MountOption{"prefetchThread", "start multiple threads to prefetch files", "", int64(0)}
+	opts[LocalIP] = MountOption{"localIP", "local IP address", "", ""}
+	opts[MaxBackground] = MountOption{"maxBackground", "Set the count of kernel background requests", "", int64(0)}
+	opts[CongestionThresh] = MountOption{"congestionThresh", "Set the congestion threshold of kernel background requests", "", int64(0)}
 
 	for i := 0; i < MaxMountOption; i++ {
 		flag.StringVar(&opts[i].cmdlineValue, opts[i].keyword, "", opts[i].description)
@@ -325,4 +335,8 @@ type MountOptions struct {
 	MinWriteAbleDataPartitionCnt int
 	FileSystemName               string
 	VerReadSeq                   uint64
+	PrefetchThread			 	 int64
+	LocalIP					 	 string
+	MaxBackground			 	 int64
+	CongestionThresh		 	 int64
 }

@@ -56,6 +56,7 @@ type ExtentCache struct {
 	root    *btree.BTree
 	discard *btree.BTree
 	verSeq  uint64
+	initialized bool
 }
 
 // NewExtentCache returns a new extent cache.
@@ -115,6 +116,7 @@ func (cache *ExtentCache) update(gen, size uint64, eks []proto.ExtentKey) {
 		return
 	}
 
+	cache.initialized = true
 	cache.gen = gen
 	cache.size = size
 	cache.root.Clear(false)

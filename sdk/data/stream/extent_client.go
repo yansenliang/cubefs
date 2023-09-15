@@ -45,6 +45,10 @@ type EvictIcacheFunc func(inode uint64)
 type LoadBcacheFunc func(key string, buf []byte, offset uint64, size uint32) (int, error)
 type CacheBcacheFunc func(key string, buf []byte) error
 type EvictBacheFunc func(key string) error
+type PutIcacheFunc func(inodeInfo proto.InodeInfo)
+type LookupPathFunc func(subdir string) (uint64, error)
+type ReaddirFunc func(parentID uint64) ([]proto.Dentry, error)
+type BatchInodeGetFunc func(inodes []uint64) []*proto.InodeInfo
 
 const (
 	MaxMountRetryLimit = 6
@@ -113,6 +117,10 @@ type ExtentConfig struct {
 	OnGetExtents      GetExtentsFunc
 	OnTruncate        TruncateFunc
 	OnEvictIcache     EvictIcacheFunc
+	OnLookupPath	  LookupPathFunc
+	OnReaddir		  ReaddirFunc
+	OnBatchInodeGet	  BatchInodeGetFunc
+	OnPutIcache		  PutIcacheFunc
 	OnLoadBcache      LoadBcacheFunc
 	OnCacheBcache     CacheBcacheFunc
 	OnEvictBcache     EvictBacheFunc
@@ -149,6 +157,10 @@ type ExtentClient struct {
 	splitExtentKey     SplitExtentKeyFunc
 	getExtents         GetExtentsFunc
 	truncate           TruncateFunc
+	lookupPath		   LookupPathFunc
+	readdir			   ReaddirFunc
+	batchInodeGet	   BatchInodeGetFunc
+	putIcache		   PutIcacheFunc   //May be null, must check before using
 	evictIcache        EvictIcacheFunc //May be null, must check before using
 	loadBcache         LoadBcacheFunc
 	cacheBcache        CacheBcacheFunc
@@ -260,6 +272,10 @@ retry:
 	client.getExtents = config.OnGetExtents
 	client.truncate = config.OnTruncate
 	client.evictIcache = config.OnEvictIcache
+	client.lookupPath = config.OnLookupPath
+	client.readdir = config.OnReaddir
+	client.batchInodeGet = config.OnBatchInodeGet
+	client.putIcache = config.OnPutIcache
 	client.dataWrapper.InitFollowerRead(config.FollowerRead)
 	client.dataWrapper.SetNearRead(config.NearRead)
 	client.loadBcache = config.OnLoadBcache
@@ -481,6 +497,11 @@ func (client *ExtentClient) FileSize(inode uint64) (size int, gen uint64, valid 
 	if s == nil {
 		return
 	}
+	if !s.extents.initialized {
+		if err := s.GetExtents(); err != nil {
+			return
+		}
+	}
 	valid = true
 	size, gen = s.extents.Size()
 	return
@@ -505,9 +526,13 @@ func (client *ExtentClient) Write(inode uint64, offset int, data []byte, flags i
 	}
 
 	s.once.Do(func() {
-		// TODO unhandled error
-		s.GetExtents()
+		if !s.extents.initialized {
+			s.GetExtents()
+		}
 	})
+	if !s.extents.initialized {
+		return 0, fmt.Errorf("get extents failed")
+	}
 
 	write, err = s.IssueWriteRequest(offset, data, flags, checkFunc)
 	if err != nil {
@@ -530,6 +555,15 @@ func (client *ExtentClient) Truncate(mw *meta.MetaWrapper, parentIno uint64, ino
 	if mw.EnableSummary {
 		info, err = mw.InodeGet_ll(inode)
 		oldSize = info.Size
+	}
+	// GetExtents if has not been called, to prevent file old size check failure.
+	s.once.Do(func() {
+		if !s.extents.initialized {
+			s.GetExtents()
+		}
+	})
+	if !s.extents.initialized {
+		return fmt.Errorf("get extents failed")
 	}
 	err = s.IssueTruncRequest(size, fullPath)
 	if err != nil {
@@ -566,8 +600,13 @@ func (client *ExtentClient) Read(inode uint64, data []byte, offset int, size int
 	}
 
 	s.once.Do(func() {
-		s.GetExtents()
+		if !s.extents.initialized {
+			s.GetExtents()
+		}
 	})
+	if !s.extents.initialized {
+		return 0, fmt.Errorf("get extents failed")
+	}
 
 	err = s.IssueFlushRequest()
 	if err != nil {

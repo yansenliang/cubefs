@@ -56,6 +56,7 @@ import (
 	"github.com/cubefs/cubefs/util/config"
 	"github.com/cubefs/cubefs/util/errors"
 	"github.com/cubefs/cubefs/util/exporter"
+	"github.com/cubefs/cubefs/util/iputil"
 	"github.com/cubefs/cubefs/util/log"
 	"github.com/cubefs/cubefs/util/stat"
 	"github.com/cubefs/cubefs/util/ump"
@@ -86,6 +87,16 @@ const (
 	ControlCommandFreeOSMemory = "/debug/freeosmemory"
 	ControlCommandSuspend      = "/suspend"
 	ControlCommandResume       = "/resume"
+
+	ControlPrefetchRead		   = "/prefetch/read"
+	ControlPrefetchReadPath	   = "/prefetch/read/path"
+	ControlPrefetchAddPath	   = "/prefetch/pathAdd"
+	ControlPrefetchAppPid	   = "/post/processID"
+	ControlRegisterPid	   	   = "/register/pid"
+	ControlUnregisterPid	   = "/unregister/pid"
+	ControlBatchDownload	   = "/batchdownload"
+	ControlBatchDownloadPath   = "/batchdownload/path"
+
 	Role                       = "Client"
 
 	DefaultIP            = "127.0.0.1"
@@ -432,7 +443,7 @@ func main() {
 		}
 	}
 
-	fsConn, super, err := mount(opt)
+	fsConn, super, profPort, err := mount(opt)
 	if err != nil {
 		err = errors.NewErrorf("mount failed: %v", err)
 		syslog.Println(err)
@@ -476,6 +487,12 @@ func main() {
 			fsConn.SetFuseDevFile(fud)
 		}
 	}
+
+	go func() {
+		if err = super.GeneratePrefetchCubeInfo(opt.LocalIP, uint64(profPort)); err != nil {
+			log.LogErrorf("GeneratePrefetchCubeInfo: err(%v) localIP(%v) prof(%v)", err, opt.LocalIP, profPort)
+		}
+	}()
 
 	if err = fs.Serve(fsConn, super, opt); err != nil {
 		log.LogFlush()
@@ -537,7 +554,12 @@ func startDaemon() error {
 	return nil
 }
 
-func waitListenAndServe(statusCh chan error, addr string, handler http.Handler) {
+type portStatus struct {
+	port	int
+	err		error
+}
+
+func waitListenAndServe(statusCh chan *portStatus, addr string, handler http.Handler) {
 	var err error
 	var loop int = 0
 	var interval int = (1 << 17) - 1
@@ -584,11 +606,11 @@ func waitListenAndServe(statusCh chan error, addr string, handler http.Handler) 
 	}
 
 	if err != nil {
-		statusCh <- err
+		statusCh <- &portStatus{err: err}
 		return
 	}
 
-	statusCh <- nil
+	statusCh <- &portStatus{port: listener.Addr().(*net.TCPAddr).Port}
 	msg := fmt.Sprintf("Start pprof with port: %v\n",
 		listener.Addr().(*net.TCPAddr).Port)
 	syslog.Print(msg)
@@ -600,7 +622,7 @@ func waitListenAndServe(statusCh chan error, addr string, handler http.Handler) 
 	// unreachable
 }
 
-func mount(opt *proto.MountOptions) (fsConn *fuse.Conn, super *cfs.Super, err error) {
+func mount(opt *proto.MountOptions) (fsConn *fuse.Conn, super *cfs.Super, profPort int, err error) {
 	super, err = cfs.NewSuper(opt)
 	if err != nil {
 		log.LogError(errors.Stack(err))
@@ -618,16 +640,27 @@ func mount(opt *proto.MountOptions) (fsConn *fuse.Conn, super *cfs.Super, err er
 	http.HandleFunc(auditlog.EnableAuditLogReqPath, super.EnableAuditLog)
 	http.HandleFunc(auditlog.DisableAuditLogReqPath, auditlog.DisableAuditLog)
 	http.HandleFunc(auditlog.SetAuditLogBufSizeReqPath, auditlog.ResetWriterBuffSize)
+	// cube_torch
+	http.HandleFunc(ControlPrefetchRead, super.PrefetchByIndex)
+	http.HandleFunc(ControlPrefetchReadPath, super.PrefetchByPath)
+	http.HandleFunc(ControlPrefetchAddPath, super.PrefetchAddPath)
+	http.HandleFunc(ControlPrefetchAppPid, super.RegisterAppPid)
+	http.HandleFunc(ControlRegisterPid, super.RegisterAppPid)
+	http.HandleFunc(ControlUnregisterPid, super.UnregisterAppPid)
+	http.HandleFunc(ControlBatchDownload, super.BatchDownload)
+	http.HandleFunc(ControlBatchDownloadPath, super.BatchDownloadPath)
 
-	statusCh := make(chan error)
+	statusCh := make(chan *portStatus)
 	pprofAddr := ":" + opt.Profport
 	if opt.LocallyProf {
 		pprofAddr = "127.0.0.1:" + opt.Profport
 	}
 	go waitListenAndServe(statusCh, pprofAddr, nil)
-	if err = <-statusCh; err != nil {
-		daemonize.SignalOutcome(err)
+	if status := <-statusCh; status.err != nil {
+		daemonize.SignalOutcome(status.err)
 		return
+	} else {
+		profPort = status.port
 	}
 
 	go func() {
@@ -658,6 +691,8 @@ func mount(opt *proto.MountOptions) (fsConn *fuse.Conn, super *cfs.Super, err er
 	options := []fuse.MountOption{
 		fuse.AllowOther(),
 		fuse.MaxReadahead(MaxReadAhead),
+		fuse.MaxBackground(uint16(opt.MaxBackground)),
+		fuse.CongestionThresh(uint16(opt.CongestionThresh)),
 		fuse.AsyncRead(),
 		fuse.AutoInvalData(opt.AutoInvalData),
 		fuse.FSName(opt.FileSystemName),
@@ -785,6 +820,8 @@ func parseMountOption(cfg *config.Config) (*proto.MountOptions, error) {
 	opt.RequestTimeout = GlobalMountOptions[proto.RequestTimeout].GetInt64()
 	opt.MinWriteAbleDataPartitionCnt = int(GlobalMountOptions[proto.MinWriteAbleDataPartitionCnt].GetInt64())
 	opt.FileSystemName = GlobalMountOptions[proto.FileSystemName].GetString()
+	opt.MaxBackground = GlobalMountOptions[proto.MaxBackground].GetInt64()
+	opt.CongestionThresh = GlobalMountOptions[proto.CongestionThresh].GetInt64()
 
 	if opt.MountPoint == "" || opt.Volname == "" || opt.Owner == "" || opt.Master == "" {
 		return nil, errors.New(fmt.Sprintf("invalid config file: lack of mandatory fields, mountPoint(%v), volName(%v), owner(%v), masterAddr(%v)", opt.MountPoint, opt.Volname, opt.Owner, opt.Master))
@@ -796,6 +833,12 @@ func parseMountOption(cfg *config.Config) (*proto.MountOptions, error) {
 
 	if opt.FileSystemName == "" {
 		opt.FileSystemName = "cubefs-" + opt.Volname
+	}
+
+	opt.PrefetchThread = GlobalMountOptions[proto.PrefetchThread].GetInt64()
+	opt.LocalIP = GlobalMountOptions[proto.LocalIP].GetString()
+	if opt.PrefetchThread > 0 && !iputil.IsValidIP(opt.LocalIP) {
+		return nil, fmt.Errorf("invalid prefetch config: localIP(%v) must be a valid IP", opt.LocalIP)
 	}
 
 	return opt, nil
