@@ -38,7 +38,7 @@ from torch.utils.data.sampler import (
 
 from cube_torch import get_manager, CubePushDataSetInfo
 from cube_torch.cube_worker import _worker_loop, _register_pid_to_storage, \
-    _unregister_pid_to_storage, _loop_push_worker, _loop_allocate_mem_worker
+    _unregister_pid_to_storage, _loop_batch_download_worker
 
 
 class CubeDataLoader(Generic[T_co]):
@@ -79,11 +79,12 @@ class CubeDataLoader(Generic[T_co]):
 
         self.prefetch_factor = prefetch_factor
 
-        if self.prefetch_factor < 8:
-            self.prefetch_factor = 8
-
         self.dataset = dataset
         self.num_workers = num_workers
+
+        if self.num_workers == 1:
+            self.prefetch_factor = 3
+
         self.pin_memory = pin_memory
         self.pin_memory_device = pin_memory_device
         self.timeout = timeout
@@ -198,64 +199,51 @@ class CubeDataLoader(Generic[T_co]):
 
         self.real_sample_size = len(self.dataset)
         self.check_worker_number_rationality()
-        self.wait_read_train_file_queue = get_manager().Queue()
+        self.wait_read_train_file_queue = multiprocessing.Queue()
+        self.wait_read_train_file_queue.cancel_join_thread()
         self._push_worker_loop_events = []
         self.is_use_batch_download = False
         self._dataset_id = id(self.dataset)
         self._push_worker_loop_process = []
         self.batch_download_shared_memory = None
         self.batch_download_file_metas = None
-        self.free_file_meta_queue=None
-        self.batch_download_notify_queues = []
-        self.init_cube_dataset_info()
+        self.free_file_meta_queues = []
+        self.cube_dataset_info = CubePushDataSetInfo(self)
+        self.is_use_batch_download = self.cube_dataset_info.is_use_batch_download()
+        if self.is_use_batch_download:
+            self._start_init_batch_downloader()
+
         torch.set_vital('Dataloader', 'enabled', 'True')  # type: ignore[attr-defined]
 
-    def init_cube_dataset_info(self):
-        self.cube_dataset_info = None
-        self.cube_dataset_info = CubePushDataSetInfo(self)
-        self._start_notify_storage_worker()
-
-    def _start_notify_storage_worker(self):
+    def _start_init_batch_downloader(self):
         manager = get_manager()
         cube_dataset_info = self.cube_dataset_info
-        cube_prefetch_addr = cube_dataset_info.get_cube_prefetch_addr()
-        self.is_use_batch_download = cube_dataset_info.is_use_batch_download()
+
         batch_download_addr = cube_dataset_info.get_batch_download_addr()
         cache_size = cube_dataset_info.get_shared_memory_size()
         notify_storage_worker_num = cube_dataset_info.get_notify_storage_worker_num()
-
-        if self.is_use_batch_download:
-            self.batch_download_shared_memory = multiprocessing.RawArray(ctypes.c_ubyte, cache_size)
-            self.batch_download_file_metas = manager.dict()
-            for index in range(notify_storage_worker_num):
-                input_queue = multiprocessing.Queue(maxsize=self.batch_size*2)
-                output_queue = multiprocessing.Queue(maxsize=self.batch_size*2)
-                self.batch_download_notify_queues.append((input_queue, output_queue))
-            self.free_file_meta_queue=multiprocessing.Queue(maxsize=self.batch_size*notify_storage_worker_num)
-            e = multiprocessing.Event()
-            ctx = multiprocessing.get_context("fork")
-            w = ctx.Process(target=_loop_allocate_mem_worker,
-                            args=(cache_size, notify_storage_worker_num, self.batch_download_notify_queues, self.free_file_meta_queue,e))
-            w.daemon = True
-            w.start()
-            self._push_worker_loop_events.append(w)
-            self._push_worker_loop_events.append(e)
-
+        self.batch_download_shared_memory = multiprocessing.RawArray(ctypes.c_ubyte, cache_size)
+        self.batch_download_file_metas = manager.dict()
+        every_sub_shared_memory_size = cache_size // notify_storage_worker_num
+        print("pid:{} _start_init_batch_downloader batch_download_addr:{} cache_size:{}".format(os.getpid(),
+                                                                                                batch_download_addr,
+                                                                                                cache_size))
         for index in range(notify_storage_worker_num):
             e = multiprocessing.Event()
-            downloader_info = None
-            if self.is_use_batch_download:
-                downloader_info = (batch_download_addr, self._dataset_id, index, self.batch_download_file_metas,
-                                   self.batch_download_shared_memory, self.batch_download_notify_queues[index])
+            sub_shared_memory_start = index * every_sub_shared_memory_size
+            sub_shared_memory_end = (index + 1) * every_sub_shared_memory_size
+            free_memory_qeueue = manager.Queue(maxsize=self.batch_size)
+            downloader_info = (batch_download_addr, self._dataset_id, index, self.batch_download_file_metas,
+                               self.batch_download_shared_memory, sub_shared_memory_start, sub_shared_memory_end,
+                               free_memory_qeueue)
+            self.free_file_meta_queues.append(free_memory_qeueue)
             ctx = multiprocessing.get_context("fork")
-            w = ctx.Process(target=_loop_push_worker, args=(
-                self.wait_read_train_file_queue, cube_prefetch_addr, self.is_use_batch_download, downloader_info, e))
+            w = ctx.Process(target=_loop_batch_download_worker, args=(
+                self.wait_read_train_file_queue, downloader_info, e))
             w.daemon = True
             w.start()
             self._push_worker_loop_events.append(w)
             self._push_worker_loop_events.append(e)
-        print("pid:{} cube_prefetch_addr:{} is_use_batch_download:{} ".format(os.getpid(), cube_prefetch_addr,
-                                                                              self.is_use_batch_download))
 
     def __del__(self):
         if len(self._push_worker_loop_events) == 0:
@@ -469,8 +457,8 @@ class CubeMultiProcessingDataLoaderIter(_BaseDataLoaderIter):
         self._start_loop_get_index = False
         self._storage_event = threading.Event()
         self._loadindex_event = threading.Event()
-        self._wait_read_train_file_queue = loader.wait_read_train_file_queue
         self.is_use_batch_download = loader.is_use_batch_download
+        self._wait_read_train_file_queue = loader.wait_read_train_file_queue
         self._preload_index_queue = queue.Queue(maxsize=self.cube_dataset_info.get_cube_queue_size_on_worker() * 2)
         self._loadindex_queue = queue.Queue(maxsize=self.cube_dataset_info.get_cube_queue_size_on_worker())
 
@@ -489,23 +477,27 @@ class CubeMultiProcessingDataLoaderIter(_BaseDataLoaderIter):
         cube_root_dir = self.cube_dataset_info.get_cubefs_root_dir()
         self.batch_download_shared_memory = None
         self.batch_download_file_metas = None
-        downloader_info = None
+        prefetch_thread_num = self.cube_dataset_info.get_cube_prefetch_thread_cnt()
+        storage_info = None
         if is_use_batch_download:
-            downloader_info = (
-                loader.batch_download_file_metas, loader.batch_download_shared_memory,
-                loader.free_file_meta_queue)
+            storage_info = (cube_root_dir, loader.batch_download_file_metas, loader.batch_download_shared_memory,
+                            loader.free_file_meta_queues)
+        else:
+            storage_info = (cube_root_dir, prefetch_thread_num, self._wait_read_train_file_queue,
+                            self.cube_dataset_info.get_cube_prefetch_addr())
+            print("notify storage info:{}".format(storage_info))
 
         for i in range(self._num_workers):
             index_queue = multiprocessing_context.Queue()
             index_queue.cancel_join_thread()
-            ctx = multiprocessing.get_context("fork")
+            ctx = multiprocessing_context.get_context("fork")
             w = ctx.Process(
                 target=_worker_loop,
                 args=(self._dataset_kind, self._dataset, index_queue,
                       self._worker_result_queue, self._workers_done_event,
                       self._auto_collation, self._collate_fn, self._drop_last,
                       self._base_seed, self._worker_init_fn, i, self._num_workers,
-                      self._persistent_workers, cube_root_dir, is_use_batch_download, downloader_info))
+                      self._persistent_workers, is_use_batch_download, storage_info))
             w.daemon = True
             w.start()
             self._index_queues.append(index_queue)
@@ -519,7 +511,7 @@ class CubeMultiProcessingDataLoaderIter(_BaseDataLoaderIter):
             # Queue is not type-annotated
             self._data_queue = queue.Queue()  # type: ignore[var-annotated]
 
-            if hasattr(self,'_pin_memory_device'):
+            if hasattr(self, '_pin_memory_device'):
                 pin_memory_thread = threading.Thread(
                     target=_utils.pin_memory._pin_memory_loop,
                     args=(self._worker_result_queue, self._data_queue,
@@ -947,9 +939,6 @@ class CubeMultiProcessingDataLoaderIter(_BaseDataLoaderIter):
                 self._loadindex_event.set()
                 self._storage_thread.join()
                 self._loadindex_thread.join()
-
-                # Exit workers now.
-
                 self._workers_done_event.set()
 
                 for worker_id in range(len(self._workers)):
@@ -964,11 +953,12 @@ class CubeMultiProcessingDataLoaderIter(_BaseDataLoaderIter):
                     # We should be able to join here, but in case anything went
                     # wrong, we set a timeout and if the workers fail to join,
                     # they are killed in the `finally` block.
-                    w.join(timeout=0.01)
+                    w.join(timeout=_utils.MP_STATUS_CHECK_INTERVAL)
 
                 for q in self._index_queues:
                     q.cancel_join_thread()
                     q.close()
+
 
             finally:
                 # Even though all this function does is putting into batch_download_notify_queues that

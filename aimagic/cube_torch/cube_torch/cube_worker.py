@@ -10,19 +10,18 @@ import logging
 import os
 import queue
 import random
-import time
+import threading
+from dataclasses import dataclass
 from typing import Union
 
 import requests
 import torch
-from dataclasses import dataclass
 from torch._utils import ExceptionWrapper
 from torch.utils.data import _DatasetKind
 
 from cube_torch.cube_batch_download import CubeBatchDownloader
 from cube_torch.cube_file import set_global_cube_rootdir_path, InterceptionIO, set_global_interception_io
 from cube_torch.cube_file_open_interceptor import CubeFileOpenInterceptor
-from cube_torch.mem_manager import MemoryAllocater
 
 logger = logging.getLogger(__name__)
 from torch.utils.data._utils.worker import WorkerInfo, _generate_state, HAS_NUMPY, _IterableDatasetStopIteration, \
@@ -86,9 +85,7 @@ def _post_to_storage(index_list, notify_storage_addr):
         return
     try:
         data = json.dumps(index_list)
-        with requests.post(notify_storage_addr, data, timeout=2) as response:
-            if response.status_code != 200:
-                raise ValueError("unavali request,response:{}".format(response.text))
+        requests.post(notify_storage_addr, data, timeout=2)
     except Exception as e:
         print('_post_to_storage{} _post_to_storage error{} index_list{} '.format(notify_storage_addr, e, index_list))
         return
@@ -116,48 +113,80 @@ def _unregister_pid_to_storage(pids, unregister_storage_addr):
         return
 
 
-def _loop_push_worker(wait_read_train_file_queue, cube_prefetch_addr, is_use_batch_download, downloader_info, event):
+def _loop_batch_download_worker(wait_read_train_file_queue, downloader_info, event):
     torch.set_num_threads(1)
-    if is_use_batch_download:
-        downloader = CubeBatchDownloader(downloader_info)
+    downloader = CubeBatchDownloader(downloader_info)
     while not event.is_set():
         try:
             copy_file_indexs = wait_read_train_file_queue.get(timeout=5)
             index_list = [copy_file_indexs]
-            if is_use_batch_download:
-                downloader.batch_download_async(index_list)
-            else:
-                _post_to_storage_async(index_list, cube_prefetch_addr)
+            downloader.batch_download_async(index_list)
         except queue.Empty:
             continue
-        except KeyboardInterrupt:
-            return
         except Exception as e:
             continue
 
 
-def _loop_allocate_mem_worker(total_memory, batch_download_workers, batch_download_notify_queues, free_item_meta_queue, event):
-    torch.set_num_threads(batch_download_workers)
-    mem_allocater = MemoryAllocater(total_memory, batch_download_workers, batch_download_notify_queues, free_item_meta_queue)
+def _loop_notify_storage_thread(wait_read_train_file_queue, cube_prefetch_addr, event):
     while not event.is_set():
-        for t in mem_allocater.allocate_memory_threads:
-            t.join()
+        try:
+            copy_file_indexs = wait_read_train_file_queue.get(timeout=2)
+            if copy_file_indexs is None:
+                event.set()
+                break
+            index_list = [copy_file_indexs]
+            _post_to_storage_async(index_list, cube_prefetch_addr)
+        except queue.Empty:
+            continue
+        except Exception as e:
+            continue
+    print("pid:{} _loop_notify_storage_thread exit".format(os.getpid()))
+
+
+def _init_batchdownload_worker_info(storage_info):
+    torch.set_num_threads(1)
+    cube_root_dir = storage_info[0]
+    set_global_cube_rootdir_path(cube_root_dir)
+    CubeFileOpenInterceptor.set_params(cube_root_dir)
+    CubeFileOpenInterceptor.start_timer()
+    inception = InterceptionIO(storage_info[1], storage_info[2], storage_info[3])
+    builtins.open = inception.intercept_open(open)
+    torch.load = inception.intercept_torch_load(torch.load)
+    set_global_interception_io(inception)
+
+
+def _init_prefetch_threads(worker_id, storage_info):
+    notify_storage_thread = None
+    notify_storage_event = None
+    if worker_id < storage_info[1]:
+        torch.set_num_threads(2)
+        notify_storage_event = threading.Event()
+        notify_storage_thread = threading.Thread(target=_loop_notify_storage_thread,
+                                                 args=(storage_info[2], storage_info[3], notify_storage_event),
+                                                 daemon=True)
+        notify_storage_thread.daemon = True
+        notify_storage_thread.start()
+    else:
+        torch.set_num_threads(1)
+    return notify_storage_thread, notify_storage_event
+
+
+def _send_stop_signal_to_prefetch_thread(worker_id, thread_event, thread, storage_info):
+    if thread_event is not None and worker_id < storage_info[1]:
+        storage_info[2].put(None)
+        thread_event.set()
+        thread.join()
 
 
 def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
                  auto_collation, collate_fn, drop_last, base_seed, init_fn, worker_id,
-                 num_workers, persistent_workers, cube_root_dir, is_use_batch_download, downloader_info):
-    torch.set_num_threads(1)
-    inception = None
+                 num_workers, persistent_workers, is_use_batch_download, storage_info):
+    notify_storage_thread = None
+    notify_storage_event = None
     if is_use_batch_download:
-        set_global_cube_rootdir_path(cube_root_dir)
-        CubeFileOpenInterceptor.set_params(cube_root_dir)
-        CubeFileOpenInterceptor.start_timer()
-        inception = InterceptionIO(downloader_info[0], downloader_info[1], downloader_info[2])
-        builtins.open = inception.intercept_open(open)
-        torch.load = inception.intercept_torch_load(torch.load)
-        set_global_interception_io(inception)
-
+        _init_batchdownload_worker_info(storage_info)
+    else:
+        notify_storage_thread, notify_storage_event = _init_prefetch_threads(worker_id, storage_info)
     try:
         seed = base_seed + worker_id
         random.seed(seed)
@@ -214,6 +243,8 @@ def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
             elif r is None:
                 # Received the final signal
                 assert done_event.is_set() or iteration_end
+                _send_stop_signal_to_prefetch_thread(worker_id, notify_storage_event, notify_storage_thread,
+                                                     storage_info)
                 break
             elif done_event.is_set() or iteration_end:
                 # `done_event` is set. But I haven't received the final signal
@@ -240,6 +271,7 @@ def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
 
             data_queue.put((idx, data))
             del data, idx, index, r  # save memory
+
     except KeyboardInterrupt:
         pass
 
