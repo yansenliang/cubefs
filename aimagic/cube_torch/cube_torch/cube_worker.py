@@ -11,15 +11,14 @@ import os
 import queue
 import random
 import threading
-from dataclasses import dataclass
 from typing import Union
 
 import requests
 import torch
+from dataclasses import dataclass
 from torch._utils import ExceptionWrapper
 from torch.utils.data import _DatasetKind
 
-from cube_torch.cube_batch_download import CubeBatchDownloader
 from cube_torch.cube_file import set_global_cube_rootdir_path, InterceptionIO, set_global_interception_io
 from cube_torch.cube_file_open_interceptor import CubeFileOpenInterceptor
 
@@ -113,24 +112,11 @@ def _unregister_pid_to_storage(pids, unregister_storage_addr):
         return
 
 
-def _loop_batch_download_worker(wait_read_train_file_queue, downloader_info, event):
-    torch.set_num_threads(1)
-    downloader = CubeBatchDownloader(downloader_info)
+def _loop_notify_storage_thread(storage_info, event):
+    cube_root_dir, wait_read_train_file_queue, cube_prefetch_addr = storage_info
     while not event.is_set():
         try:
             copy_file_indexs = wait_read_train_file_queue.get(timeout=5)
-            index_list = [copy_file_indexs]
-            downloader.batch_download_async(index_list)
-        except queue.Empty:
-            continue
-        except Exception as e:
-            continue
-
-
-def _loop_notify_storage_thread(wait_read_train_file_queue, cube_prefetch_addr, event):
-    while not event.is_set():
-        try:
-            copy_file_indexs = wait_read_train_file_queue.get(timeout=2)
             if copy_file_indexs is None:
                 event.set()
                 break
@@ -143,50 +129,40 @@ def _loop_notify_storage_thread(wait_read_train_file_queue, cube_prefetch_addr, 
     print("pid:{} _loop_notify_storage_thread exit".format(os.getpid()))
 
 
-def _init_batchdownload_worker_info(storage_info):
+def _init_batchdownload_threads(storage_info):
     torch.set_num_threads(1)
     cube_root_dir = storage_info[0]
     set_global_cube_rootdir_path(cube_root_dir)
     CubeFileOpenInterceptor.set_params(cube_root_dir)
-    CubeFileOpenInterceptor.start_timer()
-    inception = InterceptionIO(storage_info[1], storage_info[2], storage_info[3])
+    inception = InterceptionIO(storage_info)
     builtins.open = inception.intercept_open(open)
     torch.load = inception.intercept_torch_load(torch.load)
     set_global_interception_io(inception)
+    download_thread, download_event = inception.get_event_and_thread()
+    return download_thread, download_event
 
 
 def _init_prefetch_threads(worker_id, storage_info):
-    notify_storage_thread = None
-    notify_storage_event = None
-    if worker_id < storage_info[1]:
-        torch.set_num_threads(2)
-        notify_storage_event = threading.Event()
-        notify_storage_thread = threading.Thread(target=_loop_notify_storage_thread,
-                                                 args=(storage_info[2], storage_info[3], notify_storage_event),
-                                                 daemon=True)
-        notify_storage_thread.daemon = True
-        notify_storage_thread.start()
-    else:
-        torch.set_num_threads(1)
+    torch.set_num_threads(1)
+    notify_storage_event = threading.Event()
+    notify_storage_thread = threading.Thread(target=_loop_notify_storage_thread,
+                                             args=(storage_info, notify_storage_event),
+                                             daemon=True)
+    notify_storage_thread.daemon = True
+    notify_storage_thread.start()
     return notify_storage_thread, notify_storage_event
 
 
-def _send_stop_signal_to_prefetch_thread(worker_id, thread_event, thread, storage_info):
-    if thread_event is not None and worker_id < storage_info[1]:
-        storage_info[2].put(None)
-        thread_event.set()
-        thread.join()
+def _send_stop_signal_to_prefetch_thread(is_batch_download,thread,event):
+    if is_batch_download:
+        CubeFileOpenInterceptor.stop_print_hitcache_timer()
+    event.set()
+    thread.join()
 
 
 def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
                  auto_collation, collate_fn, drop_last, base_seed, init_fn, worker_id,
                  num_workers, persistent_workers, is_use_batch_download, storage_info):
-    notify_storage_thread = None
-    notify_storage_event = None
-    if is_use_batch_download:
-        _init_batchdownload_worker_info(storage_info)
-    else:
-        notify_storage_thread, notify_storage_event = _init_prefetch_threads(worker_id, storage_info)
     try:
         seed = base_seed + worker_id
         random.seed(seed)
@@ -227,6 +203,12 @@ def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
         iteration_end = False
         watchdog = ManagerWatchdog()
         fetch_batch_cnt = 0
+        print_timer = None
+        if is_use_batch_download:
+            notify_storage_thread, notify_storage_event = _init_batchdownload_threads(storage_info)
+        else:
+            notify_storage_thread, notify_storage_event = _init_prefetch_threads(worker_id, storage_info)
+
         while watchdog.is_alive():
             try:
                 r = index_queue.get(timeout=MP_STATUS_CHECK_INTERVAL)
@@ -243,8 +225,7 @@ def _worker_loop(dataset_kind, dataset, index_queue, data_queue, done_event,
             elif r is None:
                 # Received the final signal
                 assert done_event.is_set() or iteration_end
-                _send_stop_signal_to_prefetch_thread(worker_id, notify_storage_event, notify_storage_thread,
-                                                     storage_info)
+                _send_stop_signal_to_prefetch_thread(is_use_batch_download,notify_storage_thread,notify_storage_event)
                 break
             elif done_event.is_set() or iteration_end:
                 # `done_event` is set. But I haven't received the final signal
