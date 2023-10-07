@@ -88,22 +88,24 @@ const (
 	ControlCommandSuspend      = "/suspend"
 	ControlCommandResume       = "/resume"
 
-	ControlPrefetchRead		   = "/prefetch/read"
-	ControlPrefetchReadPath	   = "/prefetch/read/path"
-	ControlPrefetchAddPath	   = "/prefetch/pathAdd"
-	ControlPrefetchAppPid	   = "/post/processID"
-	ControlRegisterPid	   	   = "/register/pid"
-	ControlUnregisterPid	   = "/unregister/pid"
-	ControlBatchDownload	   = "/batchdownload"
-	ControlBatchDownloadPath   = "/batchdownload/path"
+	ControlPrefetchRead      = "/prefetch/read"
+	ControlPrefetchReadPath  = "/prefetch/read/path"
+	ControlPrefetchAddPath   = "/prefetch/pathAdd"
+	ControlPrefetchAppPid    = "/post/processID"
+	ControlRegisterPid       = "/register/pid"
+	ControlUnregisterPid     = "/unregister/pid"
+	ControlBatchDownload     = "/batchdownload"
+	ControlBatchDownloadPath = "/batchdownload/path"
 
-	Role                       = "Client"
+	Role = "Client"
 
 	DefaultIP            = "127.0.0.1"
 	DynamicUDSNameFormat = "/tmp/CubeFS-fdstore-%v.sock"
 	DefaultUDSName       = "/tmp/CubeFS-fdstore.sock"
 
-	DefaultLogPath = "/var/log/cubefs"
+	DefaultLogPath         = "/var/log/cubefs"
+	MaxPreFetchThreadCount = 400
+	MinPreFetchThreadCount = 200
 )
 
 var (
@@ -555,8 +557,8 @@ func startDaemon() error {
 }
 
 type portStatus struct {
-	port	int
-	err		error
+	port int
+	err  error
 }
 
 func waitListenAndServe(statusCh chan *portStatus, addr string, handler http.Handler) {
@@ -840,7 +842,13 @@ func parseMountOption(cfg *config.Config) (*proto.MountOptions, error) {
 	if opt.PrefetchThread > 0 && !iputil.IsValidIP(opt.LocalIP) {
 		return nil, fmt.Errorf("invalid prefetch config: localIP(%v) must be a valid IP", opt.LocalIP)
 	}
+	if opt.PrefetchThread > MaxPreFetchThreadCount {
+		opt.PrefetchThread = MaxPreFetchThreadCount
+	}
 
+	if opt.PrefetchThread < MinPreFetchThreadCount {
+		opt.PrefetchThread = MinPreFetchThreadCount
+	}
 	return opt, nil
 }
 

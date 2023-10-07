@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path"
@@ -20,27 +21,27 @@ import (
 
 	"github.com/cubefs/cubefs/client/cache"
 	"github.com/cubefs/cubefs/proto"
-	"github.com/cubefs/cubefs/util"
 	"github.com/cubefs/cubefs/util/log"
 )
 
 const (
-	CubeInfoDir		 = ".cube_torch"
+	CubeInfoDir      = ".cube_torch"
 	CubeInfoFileName = ".cube_info"
 
 	DefaultIndexDentryExpiration = 60 * time.Minute
-
-	DownloadFileSizeThreshold = 2 * util.MB
 )
 
 const BatchDownloadV1 = 0
 
 type CubeInfo struct {
-	Prof uint64 `json:"prof"`
+	Prof       uint64 `json:"prof"`
+	MountPoint string `json:"mount_point"`
+	LocalIP    string `json:"local_ip"`
+	VolName    string `json:"vol_name"`
 }
 
 type PrefetchManager struct {
-	volName			 string
+	volName          string
 	mountPoint       string
 	ec               *ExtentClient
 	indexFileInfoMap sync.Map // key: index file path, value: *IndexInfo
@@ -50,20 +51,20 @@ type PrefetchManager struct {
 	appPid           sync.Map
 	dcacheMap        sync.Map // key: parent Inode ID, value: *IndexDentryInfo
 
-	metrics			 *PrefetchMetrics
+	metrics *PrefetchMetrics
 
 	wg     sync.WaitGroup
 	closeC chan struct{}
 }
 
 type PrefetchMetrics struct {
-	appReadCount	uint64
-	totalReadCount	uint64
+	appReadCount   uint64
+	totalReadCount uint64
 }
 
 type IndexInfo struct {
 	path        string
-	datasetCnt	string
+	datasetCnt  string
 	ttl         int64
 	validMinute int64
 	fileInfoMap []*FileInfo
@@ -89,9 +90,9 @@ func (info *IndexDentryInfo) String() string {
 }
 
 type FileInfo struct {
-	path  	string
-	inoID	uint64
-	isAbs	bool
+	path  string
+	inoID uint64
+	isAbs bool
 }
 
 type DentryInfo struct {
@@ -102,14 +103,14 @@ type DentryInfo struct {
 func NewPrefetchManager(ec *ExtentClient, volName, mountPoint string, prefetchThreads int64) *PrefetchManager {
 	InitReadBlockPool()
 	pManager := &PrefetchManager{
-		volName: 		volName,
-		mountPoint:     mountPoint,
-		ec:             ec,
-		closeC:         make(chan struct{}, 1),
-		indexInfoChan:  make(chan *IndexInfo, 1024),
-		filePathChan:   make(chan *FileInfo, 10240000),
-		downloadChan:   make(chan *DownloadFileInfo, 10240000),
-		metrics: 		&PrefetchMetrics{0, 0},
+		volName:       volName,
+		mountPoint:    mountPoint,
+		ec:            ec,
+		closeC:        make(chan struct{}, 1),
+		indexInfoChan: make(chan *IndexInfo, 1024),
+		filePathChan:  make(chan *FileInfo, 10240000),
+		downloadChan:  make(chan *DownloadFileInfo, 10240000),
+		metrics:       &PrefetchMetrics{0, 0},
 	}
 	for i := int64(0); i < prefetchThreads; i++ {
 		pManager.wg.Add(1)
@@ -127,15 +128,26 @@ func (pManager *PrefetchManager) Close() {
 	pManager.wg.Wait()
 }
 
+const (
+	Cube_Torch_ConfigFile = "/tmp/cube_torch.config"
+)
+
 func (pManager *PrefetchManager) GenerateCubeInfo(localIP string, port uint64) (err error) {
 	var (
 		cubeInfoBytes []byte
 		fd            *os.File
 	)
-	cubeInfo := &CubeInfo{Prof: port}
+	cubeInfo := &CubeInfo{Prof: port, MountPoint: pManager.mountPoint, LocalIP: localIP, VolName: pManager.volName}
 	if cubeInfoBytes, err = json.Marshal(cubeInfo); err != nil {
 		log.LogErrorf("GenerateCubeInfo: info(%v) json marshal err(%v)", cubeInfo, err)
 		return
+	}
+	cubeTorchConfig := fmt.Sprintf("%v.%v", Cube_Torch_ConfigFile, pManager.volName)
+	err = ioutil.WriteFile(cubeTorchConfig, cubeInfoBytes, 0666)
+	if err != nil {
+		log.LogErrorf("Generate Cube_Torch_ConfigFile(%v): info(%v) json marshal err(%v)", Cube_Torch_ConfigFile, cubeInfo, err)
+		return
+
 	}
 	cubeInfoDir := path.Join(pManager.mountPoint, CubeInfoDir, localIP)
 	if err = os.MkdirAll(cubeInfoDir, 0777); err != nil {
@@ -239,7 +251,7 @@ func (pManager *PrefetchManager) cleanExpiredIndexInfo() {
 			appRead := atomic.SwapUint64(&pManager.metrics.appReadCount, 0)
 			hitPercent := float64(100)
 			if totalRead != 0 {
-				hitPercent = float64(totalRead - appRead) / float64(totalRead) * 100
+				hitPercent = float64(totalRead-appRead) / float64(totalRead) * 100
 			}
 			log.LogInfof("PrefetchManager: totalRead(%v) appRead(%v) hitCache(%.2f%%) pathChan(%v) batchDownloadChan(%v)",
 				totalRead, appRead, hitPercent, len(pManager.filePathChan), len(pManager.downloadChan))
@@ -422,7 +434,7 @@ func (pManager *PrefetchManager) getDirInfo(path string) (parIno uint64, dcache 
 	if children, err = pManager.ec.readdir(parIno); err != nil {
 		return
 	}
-	dcache = cache.NewDentryCache(30*time.Minute)
+	dcache = cache.NewDentryCache(30 * time.Minute)
 	for _, child := range children {
 		dcache.Put(copyString(child.Name), child.Inode)
 	}
@@ -555,9 +567,9 @@ func (pManager *PrefetchManager) PrefetchByPath(filepath string) (err error) {
 }
 
 type DownloadFileInfo struct {
-	absPath		string
-	fileInfo	*FileInfo
-	resp		*BatchDownloadRespWriter
+	absPath  string
+	fileInfo *FileInfo
+	resp     *BatchDownloadRespWriter
 }
 
 func (d *DownloadFileInfo) String() string {
@@ -569,8 +581,8 @@ func (d *DownloadFileInfo) String() string {
 
 type BatchDownloadRespWriter struct {
 	sync.Mutex
-	Wg		sync.WaitGroup
-	Writer	io.Writer
+	Wg     sync.WaitGroup
+	Writer io.Writer
 }
 
 func (resp *BatchDownloadRespWriter) write(data []byte) {
@@ -607,9 +619,9 @@ func (pManager *PrefetchManager) GetBatchFileInfos(batchArr [][]uint64, datasetC
 func (pManager *PrefetchManager) DownloadData(fileInfo *FileInfo, respData *BatchDownloadRespWriter) {
 	var noData []byte
 	dInfo := &DownloadFileInfo{
-		absPath:	path.Join(pManager.mountPoint, fileInfo.path),
-		fileInfo: 	fileInfo,
-		resp:     	respData,
+		absPath:  path.Join(pManager.mountPoint, fileInfo.path),
+		fileInfo: fileInfo,
+		resp:     respData,
 	}
 	respData.Wg.Add(1)
 	select {
@@ -630,8 +642,8 @@ func (pManager *PrefetchManager) DownloadData(fileInfo *FileInfo, respData *Batc
 func (pManager *PrefetchManager) DownloadPath(filePath string, respData *BatchDownloadRespWriter) {
 	var noData []byte
 	dInfo := &DownloadFileInfo{
-		absPath:	filePath,
-		resp:   	respData,
+		absPath: filePath,
+		resp:    respData,
 	}
 	respData.Wg.Add(1)
 	select {
@@ -651,8 +663,8 @@ func (pManager *PrefetchManager) DownloadPath(filePath string, respData *BatchDo
 
 func (pManager *PrefetchManager) ReadData(dInfo *DownloadFileInfo) (err error) {
 	var (
-		content 	[]byte
-		readSize	int
+		content  []byte
+		readSize int
 	)
 	defer func() {
 		filePath := dInfo.absPath
@@ -694,7 +706,7 @@ func (pManager *PrefetchManager) ReadData(dInfo *DownloadFileInfo) (err error) {
 	}()
 
 	fileSize, _, valid := pManager.ec.FileSize(inodeID)
-	if !valid || fileSize == 0 || fileSize > DownloadFileSizeThreshold {
+	if !valid || fileSize == 0 {
 		return fmt.Errorf("file size is (%v)", fileSize)
 	}
 
