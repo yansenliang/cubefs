@@ -206,30 +206,18 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
-    traindir_list = [os.path.join(args.data, 'eval_file_' + str(i)) for i in range(1)]
-    # traindir = os.file_path.join(args.data, 'train')
-    # traindir = os.file_path.join(args.data, 'eval_file_0')
-    # valdir = os.file_path.join(args.data, 'val')
-    valdir = os.path.join("/mnt/cfs/chubaofs_tech_data-test/sangqingyuan1/imagenet", 'val')
-    # traindir = os.file_path.join("/mnt/cfs/chubaofs_tech_data-test/sangqingyuan1/imagenet", 'train')
+    traindir = os.path.join(args.data, 'train')
+    valdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
-
-    all_sub_train_datasets = []
-    for traindir in traindir_list:
-        start = time.time()
-        sub_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                normalize,
-            ]))
-        end = time.time()
-        print('folder {} init Execute time: {:.3f}s'.format(traindir, end - start))
-        all_sub_train_datasets.append(sub_dataset)
-    train_dataset = ConcatDataset(all_sub_train_datasets)
+    train_dataset = datasets.ImageFolder(
+        traindir,
+        transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ]))
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -324,14 +312,14 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        # measure elapsed time
+        
         batch_time.update(time.time() - end)
         end = time.time()
         step_end_time = time.time()
-
-        if i % args.print_freq == 0:
-            print('imagenet throughput: {} images/s'.format((1024 * (i + 1)) / (step_end_time - step_time)))
+        if dist.get_rank() == 0:
+            print(f"one step cost: {step_end_time - step_cost_time}")
+            print(f"throughput: {1024 * (i + 1) / (step_end_time - step_time)} ")
+            step_cost_time = time.time()
 
 
 def validate(val_loader, model, criterion, args):
