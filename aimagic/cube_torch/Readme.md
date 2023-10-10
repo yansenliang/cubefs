@@ -14,9 +14,8 @@
 *  适用范围广: 适用于所有的pytorch的训练模型。 
 
 
-#二、cube_torch加速原理
 
-  当pytorch训练框架需要从分布式文件存储读取文件时,通过修改pytorch的文件读取流程,会提前30秒将要读取的文件列表下载到内存中。当pytorch真正需要读取文件时,直接从内存中读取文件,而不是从磁盘中读取,从而减少磁盘延迟,实现对训练模型更快的迭代速度。
+#二、业内AI训练加速现状
 
 
 ## 2.1 现有pytorch的训练文件读取流程:
@@ -36,16 +35,9 @@
 * 利用RDMA网络技术进行优化,仅对文件读取进行网络传输层的优化, 文件读取延迟约为100微秒,但仍高于本地NVME的5微秒。此外,要求分布式存储软硬件完全支持RDMA,其成本比普通网络传输要高。
 * 通过RDMA和GDS技术简化文件读取流程,减少了内核中数据的复制开销。但存储端小文件读取延迟(如100us)仍远高于内核拷贝时间(1us),无法从根本上解决训练速度受限于分布式存储小文件读取延迟 dieser问题。
 
-基于以上的Pytorch的IO训练流程，  cube_torch 将采用全新
+基于以上的Pytorch的IO训练流程，  cube_torch 将采用全新架构来加速小文件的训练速度。
 
-## 2.2引入cube_torch 加速包改造后的pytorch的训练文件读取流程
 
-![](https://github.com/cubefs/cubefs/assets/47099843/e86bf22a-2038-44ef-a7fe-946b7002b341)
-
-如上图所示: 
-*  cubeDataLoader会启动1个异步worker，该worker只是将预读的数据发送到cubefs client
-*  cubefs client接收到指令会，会将该文件读取到linux pagecache
-*  dataLoader worker将会自动从linux pagecache读取本次要读取的数据。
 
 
 
@@ -60,7 +52,7 @@
 编译完成后，会在dist/cube_torch-0.2-py3-none-any.whl 生成安装包
 ```python
 pip3 uninstall -y cube_torch
-pip3 install dist/cube_torch-0.2-py3-none-any.whl
+pip3 install dist/cube_torch-0.3-py3-none-any.whl
 ```
 验证是否安装完成：
 ```python
@@ -81,27 +73,17 @@ import cube_torch
     "consulAddr": "http://192.168.0.101:8500",
     "exporterPort": 9500,
     "profPort": "17410",
-    "keepcache": true,
-    "fsyncOnClose": false,
-    "localIP": "192.168.0.17",
-    "prefetchThread": 4000,
-    "icacheTimeout": 300,
-    "lookupValid": 300,
-    "attrValid": 300,
-    "maxBackground": 24,
-    "congestionThresh": 18
+    "profile":"ai_prefetch"
 }
 ```
-注意这里的localIP 必须是cubefs client 的IP地址，请根据实际情况来修改
-
+注意如果要开启AI 预读功能，请增加配置文件，"profile":"ai_prefetch"，如果成功挂载，会自动生成：/tmp/cube_torch.config.ltptest 文件
 
 ##3.3 训练代码修改
 ```python
 import cube_torch
-os.environ['localIP'] = '192.168.0.17'
-os.environ["CubeFS_ROOT_DIR"] = "/cfs/mnt"
+os.environ['VOL_NAME'] = 'ltptest'
 ```
-注意这里的localIP 必须要和cubefs client 的配置文件保持一致;CubeFS_ROOT_DIR 必须是 cubefs client 的挂载点路径。
+注意这里的VOL_NAME 必须要和cubefs client 的配置文件保持一致;
 
 ### cube_torch目前支持的pytorch dataset:
 ```python
@@ -111,6 +93,9 @@ torchvision.datasets.ImageFolder、torchvision.datasets.DatasetFolder、torchvis
 
 ### 如果您是自定义dataset集，需要如以下方式新增函数train_data_list：
 ```python
+import cube_torch
+os.environ['VOL_NAME'] = 'ltptest'
+
 class ClipDataset(Dataset):
     def __init__(self, image_file_names: List[str], title_file_names: List[str], max_length=50, image_transform=std_transform):
         self.image_file_names= image_file_names
@@ -137,10 +122,14 @@ class ClipDataset(Dataset):
 ##3.4 如何监控cube_torch 运行过程中的缓存命中率：
 
 ```shell
+在训练的过程中，cube_torch会自动打印当前的缓存命中率
 
-cd /export/Logs/cfs/chubaofs_tech_data;
-
-tail -f tech-data_info.log | grep hit
+user memory last_cycle_metrics:([request_count:4801 hit_count:4801 miss_count:0 hit_rate:100.00% miss_rate:0.00% ])  sum_metrics:([request_count:295154 hit_count:295001 miss_count:153 hit_rate:99.95% miss_rate:0.05%])
 
 ```
 通过以上命令，即可观测缓存命中率。 在100%的情况下，即可加速pytorch 的训练速度
+
+
+#四、cube_torch 加速效果测试
+
+
