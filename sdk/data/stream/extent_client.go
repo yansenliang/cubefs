@@ -47,6 +47,7 @@ type CacheBcacheFunc func(key string, buf []byte) error
 type EvictBacheFunc func(key string) error
 type PutIcacheFunc func(inodeInfo proto.InodeInfo)
 type LookupPathFunc func(subdir string) (uint64, error)
+type LookupFunc func(parentID uint64, name string) (uint64, uint32, error)
 type ReaddirFunc func(parentID uint64) ([]proto.Dentry, error)
 type BatchInodeGetFunc func(inodes []uint64) []*proto.InodeInfo
 
@@ -118,6 +119,7 @@ type ExtentConfig struct {
 	OnTruncate        TruncateFunc
 	OnEvictIcache     EvictIcacheFunc
 	OnLookupPath	  LookupPathFunc
+	OnLookup		  LookupFunc
 	OnReaddir		  ReaddirFunc
 	OnBatchInodeGet	  BatchInodeGetFunc
 	OnPutIcache		  PutIcacheFunc
@@ -158,6 +160,7 @@ type ExtentClient struct {
 	getExtents         GetExtentsFunc
 	truncate           TruncateFunc
 	lookupPath		   LookupPathFunc
+	lookup			   LookupFunc
 	readdir			   ReaddirFunc
 	batchInodeGet	   BatchInodeGetFunc
 	putIcache		   PutIcacheFunc   //May be null, must check before using
@@ -273,6 +276,7 @@ retry:
 	client.truncate = config.OnTruncate
 	client.evictIcache = config.OnEvictIcache
 	client.lookupPath = config.OnLookupPath
+	client.lookup = config.OnLookup
 	client.readdir = config.OnReaddir
 	client.batchInodeGet = config.OnBatchInodeGet
 	client.putIcache = config.OnPutIcache

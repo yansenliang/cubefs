@@ -232,6 +232,7 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 		OnGetExtents:      s.mw.GetExtents,
 		OnTruncate:        s.mw.Truncate,
 		OnLookupPath: 	   s.mw.LookupPath,
+		OnLookup: 		   s.mw.Lookup_ll,
 		OnReaddir: 		   s.mw.ReadDir_ll,
 		OnBatchInodeGet:   s.mw.BatchInodeGet,
 		OnEvictIcache:     s.ic.Delete,
