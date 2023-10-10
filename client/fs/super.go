@@ -231,9 +231,9 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 		OnSplitExtentKey:  s.mw.SplitExtentKey,
 		OnGetExtents:      s.mw.GetExtents,
 		OnTruncate:        s.mw.Truncate,
-		OnLookupPath: 	   s.mw.LookupPath,
-		OnLookup: 		   s.mw.Lookup_ll,
-		OnReaddir: 		   s.mw.ReadDir_ll,
+		OnLookupPath:      s.mw.LookupPath,
+		OnLookup:          s.mw.Lookup_ll,
+		OnReaddir:         s.mw.ReadDir_ll,
 		OnBatchInodeGet:   s.mw.BatchInodeGet,
 		OnEvictIcache:     s.ic.Delete,
 		OnPutIcache:       s.ic.PutValue,
@@ -814,8 +814,8 @@ func (s *Super) PrefetchAddPath(w http.ResponseWriter, r *http.Request) {
 
 func (s *Super) PrefetchByIndex(w http.ResponseWriter, r *http.Request) {
 	var (
-		bytes	[]byte
-		err 	error
+		bytes []byte
+		err   error
 	)
 	if s.prefetchManager == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -868,8 +868,8 @@ func (s *Super) PrefetchByIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *Super) PrefetchByPath(w http.ResponseWriter, r *http.Request) {
 	var (
-		bytes	[]byte
-		err 	error
+		bytes []byte
+		err   error
 	)
 	if s.prefetchManager == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -963,17 +963,17 @@ func (s *Super) UnregisterAppPid(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(fmt.Sprintf("Delete app pid (%v).\n", pidArr)))
 }
 
-func (s *Super) GeneratePrefetchCubeInfo(localIP string, port uint64) error {
+func (s *Super) GeneratePrefetchCubeInfo(port uint64) error {
 	if s.prefetchManager == nil {
 		return nil
 	}
-	return s.prefetchManager.GenerateCubeInfo(localIP, port)
+	return s.prefetchManager.GenerateCubeInfo(port)
 }
 
 func (s *Super) BatchDownload(w http.ResponseWriter, r *http.Request) {
 	var (
-		bytes	[]byte
-		err 	error
+		bytes []byte
+		err   error
 	)
 	if s.prefetchManager == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -1036,8 +1036,8 @@ func (s *Super) BatchDownload(w http.ResponseWriter, r *http.Request) {
 
 func (s *Super) BatchDownloadPath(w http.ResponseWriter, r *http.Request) {
 	var (
-		bytes	[]byte
-		err 	error
+		bytes []byte
+		err   error
 	)
 	if s.prefetchManager == nil {
 		w.WriteHeader(http.StatusForbidden)
@@ -1055,7 +1055,7 @@ func (s *Super) BatchDownloadPath(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(fmt.Sprintf("read body err(%v)\n", err)))
 		return
 	}
-	var batchArr   [][]string
+	var batchArr [][]string
 	if err = json.Unmarshal(bytes, &batchArr); err != nil {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(fmt.Sprintf("json unmarshal err(%v)\n", err)))

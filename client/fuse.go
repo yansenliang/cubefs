@@ -56,7 +56,6 @@ import (
 	"github.com/cubefs/cubefs/util/config"
 	"github.com/cubefs/cubefs/util/errors"
 	"github.com/cubefs/cubefs/util/exporter"
-	"github.com/cubefs/cubefs/util/iputil"
 	"github.com/cubefs/cubefs/util/log"
 	"github.com/cubefs/cubefs/util/stat"
 	"github.com/cubefs/cubefs/util/ump"
@@ -491,8 +490,8 @@ func main() {
 	}
 
 	go func() {
-		if err = super.GeneratePrefetchCubeInfo(opt.LocalIP, uint64(profPort)); err != nil {
-			log.LogErrorf("GeneratePrefetchCubeInfo: err(%v) localIP(%v) prof(%v)", err, opt.LocalIP, profPort)
+		if err = super.GeneratePrefetchCubeInfo(uint64(profPort)); err != nil {
+			log.LogErrorf("GeneratePrefetchCubeInfo: err(%v) prof(%v)", err, profPort)
 		}
 	}()
 
@@ -838,16 +837,32 @@ func parseMountOption(cfg *config.Config) (*proto.MountOptions, error) {
 	}
 
 	opt.PrefetchThread = GlobalMountOptions[proto.PrefetchThread].GetInt64()
-	opt.LocalIP = GlobalMountOptions[proto.LocalIP].GetString()
-	if opt.PrefetchThread > 0 && !iputil.IsValidIP(opt.LocalIP) {
-		return nil, fmt.Errorf("invalid prefetch config: localIP(%v) must be a valid IP", opt.LocalIP)
-	}
-	if opt.PrefetchThread > MaxPreFetchThreadCount {
-		opt.PrefetchThread = MaxPreFetchThreadCount
-	}
 
-	if opt.PrefetchThread < MinPreFetchThreadCount {
-		opt.PrefetchThread = MinPreFetchThreadCount
+	opt.Profile = GlobalMountOptions[proto.Profile].GetString()
+	if opt.Profile == proto.ProfileAiPrefetch {
+		if !GlobalMountOptions[proto.KeepCache].HasConfig() {
+			opt.KeepCache = true
+		}
+		if !GlobalMountOptions[proto.PrefetchThread].HasConfig() {
+			opt.PrefetchThread = 3 * int64(runtime.NumCPU())
+		}
+		if !GlobalMountOptions[proto.FsyncOnClose].HasConfig() {
+			opt.FsyncOnClose = false
+		}
+		if !GlobalMountOptions[proto.IcacheTimeout].HasConfig() {
+			opt.IcacheTimeout = 300
+		}
+		if !GlobalMountOptions[proto.LookupValid].HasConfig() {
+			opt.LookupValid = 300
+		}
+	}
+	if opt.PrefetchThread > 0 {
+		if opt.PrefetchThread > MaxPreFetchThreadCount {
+			opt.PrefetchThread = MaxPreFetchThreadCount
+		}
+		if opt.PrefetchThread < MinPreFetchThreadCount {
+			opt.PrefetchThread = MinPreFetchThreadCount
+		}
 	}
 	return opt, nil
 }

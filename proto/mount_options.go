@@ -76,19 +76,20 @@ const (
 	SnapshotReadVerSeq
 
 	PrefetchThread
-	LocalIP
 	MaxBackground
 	CongestionThresh
+	Profile
 
 	MaxMountOption
 )
 
 // For server
 const (
-	MasterAddr       = "masterAddr"
-	ListenPort       = "listen"
-	ObjectNodeDomain = "objectNodeDomain"
-	BindIpKey        = "bindIp"
+	MasterAddr        = "masterAddr"
+	ListenPort        = "listen"
+	ObjectNodeDomain  = "objectNodeDomain"
+	BindIpKey         = "bindIp"
+	ProfileAiPrefetch = "ai_prefetch"
 )
 
 type MountOption struct {
@@ -96,6 +97,11 @@ type MountOption struct {
 	description  string
 	cmdlineValue string
 	value        interface{}
+	hasConfig    bool // is this option in config file
+}
+
+func NewMountOption(keyword string, description string, value interface{}) MountOption {
+	return MountOption{keyword, description, "", value, false}
 }
 
 func (opt MountOption) String() string {
@@ -108,74 +114,73 @@ func NewMountOptions() []MountOption {
 }
 
 func InitMountOptions(opts []MountOption) {
-	opts[MountPoint] = MountOption{"mountPoint", "Mount Point", "", ""}
-	opts[VolName] = MountOption{"volName", "Volume Name", "", ""}
-	opts[Owner] = MountOption{"owner", "Owner", "", ""}
-	opts[Master] = MountOption{MasterAddr, "Master Address", "", ""}
-	opts[LogDir] = MountOption{"logDir", "Log Path", "", ""}
-	opts[WarnLogDir] = MountOption{"warnLogDir", "Warn Log Path", "", ""}
-	opts[LogLevel] = MountOption{"logLevel", "Log Level", "", ""}
-	opts[ProfPort] = MountOption{"profPort", "PProf Port", "", ""}
-	opts[LocallyProf] = MountOption{"locallyProf", "Locally PProf", "", false}
-	opts[IcacheTimeout] = MountOption{"icacheTimeout", "Inode Cache Expiration Time", "", int64(-1)}
-	opts[LookupValid] = MountOption{"lookupValid", "Lookup Valid Duration", "", int64(-1)}
-	opts[AttrValid] = MountOption{"attrValid", "Attr Valid Duration", "", int64(-1)}
-	opts[ReadRate] = MountOption{"readRate", "Read Rate Limit", "", int64(-1)}
-	opts[WriteRate] = MountOption{"writeRate", "Write Rate Limit", "", int64(-1)}
-	opts[EnSyncWrite] = MountOption{"enSyncWrite", "Enable Sync Write", "", int64(-1)}
-	opts[AutoInvalData] = MountOption{"autoInvalData", "Auto Invalidate Data", "", int64(-1)}
-	opts[Rdonly] = MountOption{"rdonly", "Mount as readonly", "", false}
-	opts[WriteCache] = MountOption{"writecache", "Enable FUSE writecache feature", "", false}
-	opts[KeepCache] = MountOption{"keepcache", "Enable FUSE keepcache feature", "", false}
-	opts[FollowerRead] = MountOption{"followerRead", "Enable read from follower", "", false}
-	opts[NearRead] = MountOption{"nearRead", "Enable read from nearest node", "", true}
+	opts[MountPoint] = NewMountOption("mountPoint", "Mount Point", "")
+	opts[VolName] = NewMountOption("volName", "Volume Name", "")
+	opts[Owner] = NewMountOption("owner", "Owner", "")
+	opts[Master] = NewMountOption(MasterAddr, "Master Address", "")
+	opts[LogDir] = NewMountOption("logDir", "Log Path", "")
+	opts[WarnLogDir] = NewMountOption("warnLogDir", "Warn Log Path", "")
+	opts[LogLevel] = NewMountOption("logLevel", "Log Level", "")
+	opts[ProfPort] = NewMountOption("profPort", "PProf Port", "")
+	opts[LocallyProf] = NewMountOption("locallyProf", "Locally PProf", false)
+	opts[IcacheTimeout] = NewMountOption("icacheTimeout", "Inode Cache Expiration Time", int64(-1))
+	opts[LookupValid] = NewMountOption("lookupValid", "Lookup Valid Duration", int64(-1))
+	opts[AttrValid] = NewMountOption("attrValid", "Attr Valid Duration", int64(-1))
+	opts[ReadRate] = NewMountOption("readRate", "Read Rate Limit", int64(-1))
+	opts[WriteRate] = NewMountOption("writeRate", "Write Rate Limit", int64(-1))
+	opts[EnSyncWrite] = NewMountOption("enSyncWrite", "Enable Sync Write", int64(-1))
+	opts[AutoInvalData] = NewMountOption("autoInvalData", "Auto Invalidate Data", int64(-1))
+	opts[Rdonly] = NewMountOption("rdonly", "Mount as readonly", false)
+	opts[WriteCache] = NewMountOption("writecache", "Enable FUSE writecache feature", false)
+	opts[KeepCache] = NewMountOption("keepcache", "Enable FUSE keepcache feature", false)
+	opts[FollowerRead] = NewMountOption("followerRead", "Enable read from follower", false)
+	opts[NearRead] = NewMountOption("nearRead", "Enable read from nearest node", false)
 
-	opts[Authenticate] = MountOption{"authenticate", "Enable Authenticate", "", false}
-	opts[ClientKey] = MountOption{"clientKey", "Client Key", "", ""}
-	opts[TicketHost] = MountOption{"ticketHost", "Ticket Host", "", ""}
-	opts[EnableHTTPS] = MountOption{"enableHTTPS", "Enable HTTPS", "", false}
-	opts[CertFile] = MountOption{"certFile", "Cert File", "", ""}
+	opts[Authenticate] = NewMountOption("authenticate", "Enable Authenticate", false)
+	opts[ClientKey] = NewMountOption("clientKey", "Client Key", "")
+	opts[TicketHost] = NewMountOption("ticketHost", "Ticket Host", "")
+	opts[EnableHTTPS] = NewMountOption("enableHTTPS", "Enable HTTPS", false)
+	opts[CertFile] = NewMountOption("certFile", "Cert File", "")
 
-	opts[AccessKey] = MountOption{"accessKey", "Access Key", "", ""}
-	opts[SecretKey] = MountOption{"secretKey", "Secret Key", "", ""}
+	opts[AccessKey] = NewMountOption("accessKey", "Access Key", "")
+	opts[SecretKey] = NewMountOption("secretKey", "Secret Key", "")
 
-	opts[DisableDcache] = MountOption{"disableDcache", "Disable Dentry Cache", "", false}
-	opts[SubDir] = MountOption{"subdir", "Mount sub directory", "", ""}
-	opts[FsyncOnClose] = MountOption{"fsyncOnClose", "Perform fsync upon file close", "", true}
-	opts[MaxCPUs] = MountOption{"maxcpus", "The maximum number of CPUs that can be executing", "", int64(-1)}
-	opts[EnableXattr] = MountOption{"enableXattr", "Enable xattr support", "", false}
-	opts[EnablePosixACL] = MountOption{"enablePosixACL", "Enable posix ACL support", "", false}
-	opts[EnableSummary] = MountOption{"enableSummary", "Enable content summary", "", false}
-	opts[EnableUnixPermission] = MountOption{"enableUnixPermission", "Enable unix permission check(e.g: 777/755)", "", false}
+	opts[DisableDcache] = NewMountOption("disableDcache", "Disable Dentry Cache", false)
+	opts[SubDir] = NewMountOption("subdir", "Mount sub directory", "")
+	opts[FsyncOnClose] = NewMountOption("fsyncOnClose", "Perform fsync upon file close", true)
+	opts[MaxCPUs] = NewMountOption("maxcpus", "The maximum number of CPUs that can be executing", int64(-1))
+	opts[EnableXattr] = NewMountOption("enableXattr", "Enable xattr support", false)
+	opts[EnablePosixACL] = NewMountOption("enablePosixACL", "enable posix ACL support", false)
+	opts[EnableSummary] = NewMountOption("enableSummary", "Enable content summary", false)
+	opts[EnableUnixPermission] = NewMountOption("enableUnixPermission", "Enable unix permission check(e.g: 777/755)", false)
 
-	opts[VolType] = MountOption{"volType", "volume type", "", int64(0)}
-	opts[EbsEndpoint] = MountOption{"ebsEndpoint", "Ebs service address", "", ""}
-	opts[EbsServerPath] = MountOption{"ebsServerPath", "Ebs service path", "", ""}
-	opts[CacheAction] = MountOption{"cacheAction", "Cold cache action", "", int64(0)}
-	opts[EbsBlockSize] = MountOption{"ebsBlockSize", "Ebs object size", "", ""}
-	//opts[EnableBcache] = MountOption{"enableBcache", "Enable block cache", "", false}
-	opts[BcacheDir] = MountOption{"bcacheDir", "block cache dir", "", ""}
-	opts[ReadThreads] = MountOption{"readThreads", "Cold volume read threads", "", int64(10)}
-	opts[WriteThreads] = MountOption{"writeThreads", "Cold volume write threads", "", int64(10)}
-	opts[MetaSendTimeout] = MountOption{"metaSendTimeout", "Meta send timeout", "", int64(600)}
-	opts[BuffersTotalLimit] = MountOption{"buffersTotalLimit", "Send/Receive packets memory limit", "", int64(32768)} //default 4G
-	opts[MaxStreamerLimit] = MountOption{"maxStreamerLimit", "The maximum number of streamers", "", int64(0)}         // default 0
-	opts[BcacheFilterFiles] = MountOption{"bcacheFilterFiles", "The block cache filter files suffix", "", "py;pyx;sh;yaml;conf;pt;pth;log;out"}
-	opts[BcacheBatchCnt] = MountOption{"bcacheBatchCnt", "The block cache get meta count", "", int64(100000)}
-	opts[BcacheCheckIntervalS] = MountOption{"bcacheCheckIntervalS", "The block cache check interval", "", int64(300)}
-	opts[EnableAudit] = MountOption{"enableAudit", "enable client audit logging", "", false}
-	opts[RequestTimeout] = MountOption{"requestTimeout", "The Request Expiration Time", "", int64(0)}
-	opts[MinWriteAbleDataPartitionCnt] = MountOption{"minWriteAbleDataPartitionCnt",
-		"Min writeable data partition count retained int dpSelector when update DataPartitionsView from master",
-		"", int64(10)}
+	opts[VolType] = NewMountOption("volType", "volume type", int64(0))
+	opts[EbsEndpoint] = NewMountOption("ebsEndpoint", "Ebs service address", "")
+	opts[EbsServerPath] = NewMountOption("ebsServerPath", "Ebs service path", "")
+	opts[CacheAction] = NewMountOption("cacheAction", "Cold cache action", int64(0))
+	opts[EbsBlockSize] = NewMountOption("ebsBlockSize", "Ebs object size", "")
+	//opts[EnableBcache] = MountOption{"enableBcache", "Enable block cache", "", false)
+	opts[BcacheDir] = NewMountOption("bcacheDir", "block cache dir", "")
+	opts[ReadThreads] = NewMountOption("readThreads", "Cold volume read threads", int64(10))
+	opts[WriteThreads] = NewMountOption("writeThreads", "Cold volume write threads", int64(10))
+	opts[MetaSendTimeout] = NewMountOption("metaSendTimeout", "Meta send timeout", int64(600))
+	opts[BuffersTotalLimit] = NewMountOption("buffersTotalLimit", "Send/Receive packets memory limit", int64(32768)) //default 4G
+	opts[MaxStreamerLimit] = NewMountOption("maxStreamerLimit", "The maximum number of streamers", int64(0))         // default 0
+	opts[BcacheFilterFiles] = NewMountOption("bcacheFilterFiles", "The block cache filter files suffix", "py;pyx;sh;yaml;conf;pt;pth;log;out")
+	opts[BcacheBatchCnt] = NewMountOption("bcacheBatchCnt", "The block cache get meta count", int64(100000))
+	opts[BcacheCheckIntervalS] = NewMountOption("bcacheCheckIntervalS", "The block cache check interval", int64(300))
+	opts[EnableAudit] = NewMountOption("enableAudit", "enable client audit logging", false)
+	opts[RequestTimeout] = NewMountOption("requestTimeout", "The Request Expiration Time", int64(0))
+	opts[MinWriteAbleDataPartitionCnt] = NewMountOption("minWriteAbleDataPartitionCnt",
+		"Min writeable data partition count retained int dpSelector when update DataPartitionsView from master", int64(10))
 
-	opts[FileSystemName] = MountOption{"fileSystemName", "The explicit name of the filesystem", "", ""}
-	opts[SnapshotReadVerSeq] = MountOption{"snapshotReadSeq", "Snapshot read seq", "", int64(0)} //default false
+	opts[FileSystemName] = NewMountOption("fileSystemName", "The explicit name of the filesystem", "")
+	opts[SnapshotReadVerSeq] = NewMountOption("snapshotReadSeq", "Snapshot read seq", int64(0)) //default false
 
-	opts[PrefetchThread] = MountOption{"prefetchThread", "start multiple threads to prefetch files", "", int64(0)}
-	opts[LocalIP] = MountOption{"localIP", "local IP address", "", ""}
-	opts[MaxBackground] = MountOption{"maxBackground", "Set the count of kernel background requests", "", int64(0)}
-	opts[CongestionThresh] = MountOption{"congestionThresh", "Set the congestion threshold of kernel background requests", "", int64(0)}
+	opts[PrefetchThread] = NewMountOption("prefetchThread", "start multiple threads to prefetch files", int64(0))
+	opts[MaxBackground] = NewMountOption("maxBackground", "Set the count of kernel background requests", int64(0))
+	opts[CongestionThresh] = NewMountOption("congestionThresh", "Set the congestion threshold of kernel background requests", int64(0))
+	opts[Profile] = NewMountOption("profile", "config group for different situations", "")
 
 	for i := 0; i < MaxMountOption; i++ {
 		flag.StringVar(&opts[i].cmdlineValue, opts[i].keyword, "", opts[i].description)
@@ -191,6 +196,7 @@ func ParseMountOptions(opts []MountOption, cfg *config.Config) {
 			} else {
 				if value, present := cfg.CheckAndGetString(opts[i].keyword); present {
 					opts[i].value = value
+					opts[i].hasConfig = true
 				} else {
 					opts[i].value = v
 				}
@@ -203,6 +209,7 @@ func ParseMountOptions(opts []MountOption, cfg *config.Config) {
 			} else {
 				if present := cfg.HasKey(opts[i].keyword); present {
 					opts[i].value = cfg.GetInt64(opts[i].keyword)
+					opts[i].hasConfig = true
 				} else {
 					opts[i].value = v
 				}
@@ -215,6 +222,7 @@ func ParseMountOptions(opts []MountOption, cfg *config.Config) {
 			} else {
 				if value, present := cfg.CheckAndGetBool(opts[i].keyword); present {
 					opts[i].value = value
+					opts[i].hasConfig = true
 				} else {
 					opts[i].value = v
 				}
@@ -270,6 +278,10 @@ func (opt *MountOption) GetInt64() int64 {
 		return int64(-1)
 	}
 	return val
+}
+
+func (opt *MountOption) HasConfig() bool {
+	return opt.hasConfig
 }
 
 type MountOptions struct {
@@ -335,8 +347,8 @@ type MountOptions struct {
 	MinWriteAbleDataPartitionCnt int
 	FileSystemName               string
 	VerReadSeq                   uint64
-	PrefetchThread			 	 int64
-	LocalIP					 	 string
-	MaxBackground			 	 int64
-	CongestionThresh		 	 int64
+	PrefetchThread               int64
+	MaxBackground                int64
+	CongestionThresh             int64
+	Profile                      string
 }

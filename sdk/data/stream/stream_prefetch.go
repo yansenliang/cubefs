@@ -114,6 +114,7 @@ func NewPrefetchManager(ec *ExtentClient, volName, mountPoint string, prefetchTh
 		downloadChan:  make(chan *DownloadFileInfo, 10240000),
 		metrics:       &PrefetchMetrics{0, 0},
 	}
+	log.LogInfof("NewPrefetchManager: start prefetch threads(%v)", prefetchThreads)
 	for i := int64(0); i < prefetchThreads; i++ {
 		pManager.wg.Add(1)
 		go func(id int64) {
@@ -139,12 +140,11 @@ const (
 	Cube_Torch_ConfigFile = "/tmp/cube_torch.config"
 )
 
-func (pManager *PrefetchManager) GenerateCubeInfo(localIP string, port uint64) (err error) {
+func (pManager *PrefetchManager) GenerateCubeInfo(port uint64) (err error) {
 	var (
 		cubeInfoBytes []byte
-		fd            *os.File
 	)
-	cubeInfo := &CubeInfo{Prof: port, MountPoint: pManager.mountPoint, LocalIP: localIP, VolName: pManager.volName}
+	cubeInfo := &CubeInfo{Prof: port, MountPoint: pManager.mountPoint, VolName: pManager.volName}
 	if cubeInfoBytes, err = json.Marshal(cubeInfo); err != nil {
 		log.LogErrorf("GenerateCubeInfo: info(%v) json marshal err(%v)", cubeInfo, err)
 		return
@@ -153,26 +153,8 @@ func (pManager *PrefetchManager) GenerateCubeInfo(localIP string, port uint64) (
 	err = ioutil.WriteFile(cubeTorchConfig, cubeInfoBytes, 0666)
 	if err != nil {
 		log.LogErrorf("Generate Cube_Torch_ConfigFile(%v): info(%v) json marshal err(%v)", Cube_Torch_ConfigFile, cubeInfo, err)
-		return
-
 	}
-	cubeInfoDir := path.Join(pManager.mountPoint, CubeInfoDir, localIP)
-	if err = os.MkdirAll(cubeInfoDir, 0777); err != nil {
-		log.LogErrorf("GenerateCubeInfo: mkdir(%v) err(%v)", cubeInfoDir, err)
-		return
-	}
-	cubeInfoPath := path.Join(cubeInfoDir, CubeInfoFileName)
-	if fd, err = os.OpenFile(cubeInfoPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0666); err != nil {
-		log.LogErrorf("GenerateCubeInfo: open file(%v) err(%v)", cubeInfoPath, err)
-		return
-	}
-	defer fd.Close()
-
-	if _, err = fd.WriteAt(cubeInfoBytes, 0); err != nil {
-		log.LogErrorf("GenerateCubeInfo: write file(%v) err(%v) info(%v)", cubeInfoPath, err, cubeInfo)
-		return
-	}
-	return fd.Sync()
+	return
 }
 
 func (pManager *PrefetchManager) backGroundPrefetchWorker(id int64) {
