@@ -1,13 +1,13 @@
 <div align="center"><font size="100">cube_torch 使用文档</font></div>
 
-#一、cube_torch 是什么？
+# 一、cube_torch 是什么？
 
-##1.1 cube_torch 模块简介：
+## 1.1 cube_torch 模块简介：
 在大量图片训练场景中,由于本地存储空间限制,不得不采用分布式文件系统存储训练数据,但这将使训练数据读写变慢。业界的分布式文件系统对小文件读写效率很低。所以开发此软件,针对大量小文件训练场景,提高pytorch框架下实现很高的训练速度。
 
 由于pytorch 迭代速度较快，并且cube_torch 和cubefs进行深度绑定。 因此该软件并不侵入pytorch的代码。 用户使用较为简单，并不需要改变用户的训练代码
 
-##1.2 cube_torch 技术亮点:
+## 1.2 cube_torch 技术亮点:
 
 *  训练速度高: 针对大量的小文件训练场景，让AI的训练速度和本地NVME速度一样快。 
 *  简单易用: 用户不需要改变自己的训练代码，仅需要加入`import cube_torch`的字样，并设置几个环境变量即可进行加速。
@@ -15,11 +15,7 @@
 
 
 
-#二、业内AI训练加速现状
-
-
-## 2.1 现有pytorch的训练文件读取流程:
-![](https://github.com/cubefs/cubefs/assets/47099843/2c27d688-ec26-4996-b6f7-963643e60ed4)
+# 二、业内AI训练加速现状
 
   文件读取的延迟会影响深度学习框架训练模型的速度。磁盘读取小文件存在较高的延迟,这会降低训练速度。相比之下,将文件提前读取到内存中可以有效减少读取延迟,从而提升训练速度。
 
@@ -42,14 +38,14 @@
 
 
 
-#三、如何使用Cube_torch 进行加速
+# 三、如何使用Cube_torch 进行加速
 
-##3.1 编译、安装cube_torch:
+## 3.1 编译、安装cube_torch:
 ```python
   python3 setup.py bdist_wheel
 ```
 
-编译完成后，会在dist/cube_torch-0.2-py3-none-any.whl 生成安装包
+编译完成后，会在dist/cube_torch-0.3-py3-none-any.whl 生成安装包
 ```python
 pip3 uninstall -y cube_torch
 pip3 install dist/cube_torch-0.3-py3-none-any.whl
@@ -61,7 +57,7 @@ import cube_torch
 ```
 
 
-##3.2 cubefs client挂载文件修改：
+## 3.2 cubefs client挂载文件修改：
 ```python
 {
     "masterAddr": "192.168.0.11:17010,192.168.0.12:17010,192.168.0.13:17010",
@@ -78,7 +74,7 @@ import cube_torch
 ```
 注意如果要开启AI 预读功能，请增加配置文件，"profile":"ai_prefetch"，如果成功挂载，会自动生成：/tmp/cube_torch.config.ltptest 文件
 
-##3.3 训练代码修改
+## 3.3 训练代码修改
 ```python
 import cube_torch
 os.environ['VOL_NAME'] = 'ltptest'
@@ -119,7 +115,7 @@ class ClipDataset(Dataset):
 ```
 
 
-##3.4 如何监控cube_torch 运行过程中的缓存命中率：
+## 3.4 如何监控cube_torch 运行过程中的缓存命中率：
 
 ```shell
 在训练的过程中，cube_torch会自动打印当前的缓存命中率
@@ -130,11 +126,11 @@ user memory last_cycle_metrics:([request_count:4801 hit_count:4801 miss_count:0 
 通过以上命令，即可观测缓存命中率。 在100%的情况下，即可加速pytorch 的训练速度
 
 
-#四、cube_torch 加速效果测试
+# 四、cube_torch 加速效果测试
 
 
-|           | 9600w vlp(samples/s) | 3700w vlp(samples/s) | 7400w imagenet(samples/s) |128w imagenet(samples/s)|128w imagenet(每个epoch 耗费秒数)|
-| :-----    | ----:                | :----:               | :----:                    | :----:                 | :----:                        |
-| 本地NVME   |                      | 3100                 | 2200                      | 1036                   |   1030                        | 
-| cubeFS    | 2200                 | 2400                 | 1800                      | 1356                   |   1350                        | 
-| cube_torch| 3100                 | 3096                 | 2185                      | 1958                   |   640                         | 
+|                    | 9600w vlp(samples/s) | 3700w vlp(samples/s) | 7400w 224x224 imagenet(samples/s) |128w imagenet 1280x857 (samples/s)|128w imagenet  1280x857 (每个epoch 耗费秒数)|
+| :-----             | ----:                | :----:               | :----:                    | :----:                 | :----:                        |
+| 本地NVME            |                      | 3100                 | 2200                      | 1036                   |   1030                        | 
+| cubeFS             | 2200                 | 2400                 | 1800                      | 1356                   |   1350                        | 
+| cube_torch + cubeFS| 3100                 | 3096                 | 2185                      | 1958                   |   640                         | 
