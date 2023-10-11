@@ -325,6 +325,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         batch_time.update(time.time() - end)
         end = time.time()
         step_end_time = time.time()
+
+        if i % args.print_freq == 0:
+            progress.display(i + 1)
+
         if dist.get_rank() == 0:
             print(f"one step cost: {step_end_time - step_cost_time}")
             print(f"throughput: {1024 * (i + 1) / (step_end_time - step_time)} ")
