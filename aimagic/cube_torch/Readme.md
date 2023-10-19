@@ -11,7 +11,7 @@
 
 *  训练速度高: 针对大量的小文件训练场景，让AI的训练速度和本地NVME速度一样快。 
 *  简单易用: 用户不需要改变自己的训练代码，仅需要加入`import cube_torch`的字样，并设置几个环境变量即可进行加速。
-*  适用范围广: 适用于所有的pytorch的训练模型。 
+*  适用范围广: 适用于所有的pytorch的训练模型。已支持DEEPSPPED等框架
 
 
 
@@ -88,30 +88,56 @@ torchvision.datasets.ImageFolder、torchvision.datasets.DatasetFolder、torchvis
 ```
 
 ### 如果您是自定义dataset集，需要如以下方式新增函数train_data_list：
+
 ```python
+import numpy as np
 import cube_torch
+
 os.environ['VOL_NAME'] = 'ltptest'
 
-class ClipDataset(Dataset):
-    def __init__(self, image_file_names: List[str], title_file_names: List[str], max_length=50, image_transform=std_transform):
-        self.image_file_names= image_file_names
+
+
+class VLPDataset(Dataset):
+    def __init__(self, image_metas: List[str], title_metas: List[str], max_length=50, image_transform=std_transform,
+                 masking_func=None, attrs: List[str] = [], tokenizer=None):
+        self.image_metas = image_metas
+
         with ProcessPool() as p:
-            img_file_list = p.map(read_img_meta, self.image_file_names)
+            img_file_list = p.map(read_img_meta, self.image_metas)
         self.img_list = reduce(concat_list, img_file_list)
+
         with ProcessPool() as p:
-            title_file_list = p.map(read_img_meta, title_file_names)
-        self.title_file_names= reduce(concat_list, title_file_list)
-        self.max_length = max_length
-        self.transform = image_transform
-        self.masking_func = masking_func
+            title_file_list = p.map(read_img_meta, title_metas)
+        self.title_list = reduce(concat_list, title_file_list)
+        
+        self.img_list=np.array(self.img_list)
+        self.title_list=np.array(self.title_list)
+        super().__init__()
 
     def train_data_list(self):
-        return [self.img_list, self.title_list]
-    ##新增train_data_list函数，表示需要告诉chubaofs 所需要关注的训练集文件名列表。
-    #注意，该函数可以返回多个，如上：返回训练图片文件列表、该图片对应的标题文件列表
-    #self.img_list可能是：[/mnt/cfs/jpg/1.jpg,/mnt/cfs/jpg/2.jpg,/mnt/cfs/jpg/3.jpg,/mnt/cfs/jpg/4.jpg]
-    #self.title_list可能是[/mnt/cfs/title/1.title,/mnt/cfs/title/2.title,/mnt/cfs/title/3.title,/mnt/cfs/title/4.title]
-    #注意img_list 里面的文件名和title_list里面的文件名，必须一一对应。
+        return np.array([self.img_list, self.title_list])
+      ##新增train_data_list函数，表示需要告诉chubaofs 所需要关注的训练集文件名列表。
+      # 注意，该函数可以返回多个，如上：返回训练图片文件列表、该图片对应的标题文件列表
+      # self.img_list 必须是一个numpy的一维数组，可能是：[/mnt/cfs/jpg/1.jpg,/mnt/cfs/jpg/2.jpg,/mnt/cfs/jpg/3.jpg,/mnt/cfs/jpg/4.jpg]
+      # self.title_list 必须是一个numpy的一维数组，可能是[/mnt/cfs/title/1.title,/mnt/cfs/title/2.title,/mnt/cfs/title/3.title,/mnt/cfs/title/4.title]
+      # 注意img_list 里面的文件名和title_list里面的文件名，必须一一对应。
+
+    def __len__(self):
+        return len(self.img_list)
+
+    def __getitem__(self, index):
+        try:
+            x = utils.default_loader(self.img_list[index])
+        except Exception as e:
+               return self.__getitem__((index + 1) % self.__len__())
+
+        try:
+            title_tokens = torch.load(self.title_list[index])
+        except Exception as e:
+                return self.__getitem__((index + 1) % self.__len__())
+
+
+
 ```
 
 
@@ -129,8 +155,8 @@ user memory last_cycle_metrics:([request_count:4801 hit_count:4801 miss_count:0 
 # 四、cube_torch 加速效果测试
 
 
-|                    | 9600w vlp(samples/s) | 3700w vlp(samples/s) | 7400w 224x224 imagenet(samples/s) |128w imagenet 1280x857 (samples/s)|128w imagenet  1280x857 (每个epoch 耗费秒数)|
-| :-----             | ----:                | :----:               | :----:                    | :----:                 | :----:                        |
-| 本地NVME            |                      | 3100                 | 2200                      | 1036                   |   1030                        | 
-| cubeFS             | 2200                 | 2400                 | 1800                      | 1356                   |   1350                        | 
-| cube_torch + cubeFS| 3100                 | 3096                 | 2185                      | 1958                   |   640                         | 
+|                    | 9600w vlp(samples/s) | 3700w vlp(samples/s) | 7400w 224x224 imagenet(samples/s) |128w imagenet 1280x857 (samples/s) |128w imagenet  1280x857 (每个epoch 耗费秒数)|
+| :-----             | ----:                | :----:               | :----:                            | :----:                            | :----:                        |
+| 本地NVME            |                      | 3100                 | 2200                              | 1036                              |   1030                        | 
+| cubeFS             | 2200                 | 2400                 | 1800                              | 1356                              |   1350                        | 
+| cube_torch + cubeFS| 3100                 | 3096                 | 2185                              | 1958                              |   640                         | 

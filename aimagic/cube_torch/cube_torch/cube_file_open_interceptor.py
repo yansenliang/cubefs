@@ -54,7 +54,7 @@ class CubeFileOpenInterceptor:
     @staticmethod
     def set_params(cube_root_dir):
         CubeFileOpenInterceptor.cube_root_dir = cube_root_dir
-        CubeFileOpenInterceptor.timer = PrintHitCacheInfoTimer(60, CubeFileOpenInterceptor.print_hit_rate)
+        CubeFileOpenInterceptor.timer = PrintHitCacheInfoTimer(120, CubeFileOpenInterceptor.print_hit_rate)
         CubeFileOpenInterceptor.timer.start()
 
     @staticmethod
@@ -104,4 +104,4 @@ class CubeFileOpenInterceptor:
 
         CubeFileOpenInterceptor._last_cycle_hit_count = 0
         CubeFileOpenInterceptor._last_cycle_miss_count = 0
-        CubeFileOpenInterceptor._last_cycle_preload_time=0
+        CubeFileOpenInterceptor._last_cycle_preload_time = 0

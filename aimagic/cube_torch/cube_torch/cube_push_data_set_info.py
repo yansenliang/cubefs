@@ -4,6 +4,7 @@ import re
 import threading
 import time
 
+import numpy as np
 import requests
 
 from cube_torch import get_manager
@@ -45,6 +46,7 @@ class CubePushDataSetInfo(CubeDataSetInfo):
         self.prefetch_file_url = "http://127.0.0.1:{}/prefetch/pathAdd".format(self.prof_port)
         self.prefetch_read_url = "http://127.0.0.1:{}/prefetch/read?dataset_cnt={}".format(self.prof_port,
                                                                                            self._dataset_cnt)
+
         self.batch_download_addr = "http://127.0.0.1:{}/batchdownload/path".format(self.prof_port)
         self.clean_old_dataset_file(self.dataset_dir)
 
@@ -62,17 +64,16 @@ class CubePushDataSetInfo(CubeDataSetInfo):
     def get_register_pid_addr(self):
         return self.register_pid_addr
 
-    def get_shared_memory_size(self):
-        return self.shared_memory_size
-
     def get_unregister_pid_addr(self):
         return self.unregister_pid_addr
 
     def covert_index_list_to_filename(self, index_list):
         train_file_name_lists = []
         for index in index_list:
-            for train in self.train_list:
-                train_file_name_lists.append(train[index])
+            if self.train_list_dimensional==2:
+                train_file_name_lists.extend(self.train_list[:, index])
+            else:
+                train_file_name_lists.append(self.train_list[index])
         return train_file_name_lists
 
     def is_use_batch_download(self):
@@ -238,10 +239,3 @@ class CubePushDataSetInfo(CubeDataSetInfo):
     def get_batch_download_addr(self):
         return self.batch_download_addr
 
-    def get_notify_storage_worker_num(self):
-        if self._is_use_batch_download:
-            return 1
-        return 1
-
-    def get_cube_prefetch_thread_cnt(self):
-        return self.prefetch_thread_num
