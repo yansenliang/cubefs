@@ -40,16 +40,12 @@
 
 # 三、如何使用Cube_torch 进行加速
 
-## 3.1 编译、安装cube_torch:
-```python
-  python3 setup.py bdist_wheel
-```
-
-编译完成后，会在dist/cube_torch-0.3-py3-none-any.whl 生成安装包
+## 3.1 安装cube_torch:
 ```python
 pip3 uninstall -y cube_torch
-pip3 install dist/cube_torch-0.3-py3-none-any.whl
+pip3 install whl/cube_torch-0.3-py3-none-any.whl
 ```
+
 验证是否安装完成：
 ```python
 python3
