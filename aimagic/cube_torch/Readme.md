@@ -40,10 +40,10 @@
 
 # 三、如何使用Cube_torch 进行加速
 
-## 3.1 安装cube_torch:
+## 3.1 编译、安装cube_torch:
 ```python
-pip3 uninstall -y cube_torch
-pip3 install whl/cube_torch-0.3-py3-none-any.whl
+python3 setup.py bdist_wheel
+pip3 install dist/cube_torch-0.3-py3-none-any.whl
 ```
 
 验证是否安装完成：
@@ -61,7 +61,7 @@ import cube_torch
     "volName": "ltptest",
     "owner": "ltptest",
     "logDir": "/cfs/log",
-    "logLevel": "debug",
+    "logLevel": "info",
     "consulAddr": "http://192.168.0.101:8500",
     "exporterPort": 9500,
     "profPort": "17410",
