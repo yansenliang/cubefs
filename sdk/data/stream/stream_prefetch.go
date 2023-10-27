@@ -46,16 +46,16 @@ type PrefetchManager struct {
 	indexInfoChan    chan *IndexInfo
 	filePathChan     chan *FileInfo
 	downloadChan     chan *DownloadFileInfo
-	lookupDcache	 sync.Map // key: inode ID, value: dcache
+	lookupDcache     sync.Map // key: inode ID, value: dcache
 	appPid           sync.Map
 	dcacheMap        sync.Map // key: parent Inode ID, value: *IndexDentryInfo
 
 	metrics *PrefetchMetrics
 
-	wg     		sync.WaitGroup
-	closeC 		chan struct{}
-	isClosed  	bool
-	closeLock	sync.RWMutex
+	wg        sync.WaitGroup
+	closeC    chan struct{}
+	isClosed  bool
+	closeLock sync.RWMutex
 }
 
 type PrefetchMetrics struct {
@@ -278,7 +278,7 @@ func computeHitPercent(totalRead, appRead uint64) float64 {
 		return 0
 	}
 	if totalRead != 0 {
-		hitPercent = float64(totalRead - appRead) / float64(totalRead) * 100
+		hitPercent = float64(totalRead-appRead) / float64(totalRead) * 100
 	}
 	return hitPercent
 }
@@ -571,13 +571,13 @@ func (d *DownloadFileInfo) String() string {
 }
 
 type DownloadResult struct {
-	RespData	[]byte
-	DataLen		int
+	RespData []byte
+	DataLen  int
 }
 
 type BatchDownloadRespWriter struct {
-	Wg     	sync.WaitGroup
-	ResChan	chan *DownloadResult
+	Wg      sync.WaitGroup
+	ResChan chan *DownloadResult
 }
 
 func (pManager *PrefetchManager) GetBatchFileInfos(batchArr [][]uint64, datasetCnt string) (infos []*FileInfo, err error) {
@@ -631,7 +631,7 @@ func (pManager *PrefetchManager) ReadData(dInfo *DownloadFileInfo) (err error) {
 	var (
 		content  []byte
 		readSize int
-		inodeID	 uint64
+		inodeID  uint64
 	)
 	defer func() {
 		if err == nil && readSize > 0 {

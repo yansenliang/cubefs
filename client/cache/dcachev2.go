@@ -47,10 +47,10 @@ type Dcache struct {
 // NewDentryCache returns a new inode cache.
 func NewDcache(exp time.Duration, maxElements int, disableMetaCache bool) *Dcache {
 	dc := &Dcache{
-		cache:       make(map[string]*list.Element),
-		lruList:     list.New(),
-		expiration:  exp,
-		maxElements: maxElements,
+		cache:            make(map[string]*list.Element),
+		lruList:          list.New(),
+		expiration:       exp,
+		maxElements:      maxElements,
 		disableMetaCache: disableMetaCache,
 	}
 	go dc.backgroundEviction()

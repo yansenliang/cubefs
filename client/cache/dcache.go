@@ -22,8 +22,8 @@ import (
 // DentryCache defines the dentry cache.
 type DentryCache struct {
 	sync.RWMutex
-	cache      			map[string]uint64
-	expiration 			time.Time
+	cache               map[string]uint64
+	expiration          time.Time
 	dentryValidDuration time.Duration
 }
 

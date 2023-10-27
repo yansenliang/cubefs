@@ -364,7 +364,7 @@ func (f *File) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadR
 	}
 
 	if size > 0 {
-		resp.ActualSize = uint64(size+fuse.OutHeaderSize)
+		resp.ActualSize = uint64(size + fuse.OutHeaderSize)
 	} else if size <= 0 {
 		resp.ActualSize = uint64(fuse.OutHeaderSize)
 		log.LogWarnf("Read: ino(%v) offset(%v) reqsize(%v) req(%v) size(%v)", f.info.Inode, req.Offset, req.Size, req, size)

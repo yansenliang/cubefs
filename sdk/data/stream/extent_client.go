@@ -118,11 +118,11 @@ type ExtentConfig struct {
 	OnGetExtents      GetExtentsFunc
 	OnTruncate        TruncateFunc
 	OnEvictIcache     EvictIcacheFunc
-	OnLookupPath	  LookupPathFunc
-	OnLookup		  LookupFunc
-	OnReaddir		  ReaddirFunc
-	OnBatchInodeGet	  BatchInodeGetFunc
-	OnPutIcache		  PutIcacheFunc
+	OnLookupPath      LookupPathFunc
+	OnLookup          LookupFunc
+	OnReaddir         ReaddirFunc
+	OnBatchInodeGet   BatchInodeGetFunc
+	OnPutIcache       PutIcacheFunc
 	OnLoadBcache      LoadBcacheFunc
 	OnCacheBcache     CacheBcacheFunc
 	OnEvictBcache     EvictBacheFunc
@@ -159,11 +159,11 @@ type ExtentClient struct {
 	splitExtentKey     SplitExtentKeyFunc
 	getExtents         GetExtentsFunc
 	truncate           TruncateFunc
-	lookupPath		   LookupPathFunc
-	lookup			   LookupFunc
-	readdir			   ReaddirFunc
-	batchInodeGet	   BatchInodeGetFunc
-	putIcache		   PutIcacheFunc   //May be null, must check before using
+	lookupPath         LookupPathFunc
+	lookup             LookupFunc
+	readdir            ReaddirFunc
+	batchInodeGet      BatchInodeGetFunc
+	putIcache          PutIcacheFunc   //May be null, must check before using
 	evictIcache        EvictIcacheFunc //May be null, must check before using
 	loadBcache         LoadBcacheFunc
 	cacheBcache        CacheBcacheFunc
