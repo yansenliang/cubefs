@@ -231,7 +231,7 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 		OnSplitExtentKey:  s.mw.SplitExtentKey,
 		OnGetExtents:      s.mw.GetExtents,
 		OnTruncate:        s.mw.Truncate,
-		OnLookupPath:      s.mw.LookupPath,
+		OnLookupPath:      s.mw.LookupPathBySubDir,
 		OnLookup:          s.mw.Lookup_ll,
 		OnReaddir:         s.mw.ReadDir_ll,
 		OnBatchInodeGet:   s.mw.BatchInodeGet,
@@ -288,7 +288,7 @@ func NewSuper(opt *proto.MountOptions) (s *Super, err error) {
 	}
 
 	if opt.PrefetchThread > 0 {
-		s.prefetchManager = stream.NewPrefetchManager(s.ec, s.volname, opt.MountPoint, opt.PrefetchThread)
+		s.prefetchManager = stream.NewPrefetchManager(s.ec, s.volname, opt.MountPoint, s.rootIno, opt.PrefetchThread)
 	}
 
 	log.LogInfof("NewSuper: cluster(%v) volname(%v) icacheExpiration(%v) LookupValidDuration(%v) AttrValidDuration(%v) state(%v)",

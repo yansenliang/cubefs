@@ -41,6 +41,7 @@ type CubeInfo struct {
 type PrefetchManager struct {
 	volName          string
 	mountPoint       string
+	rootIno			 uint64
 	ec               *ExtentClient
 	indexFileInfoMap sync.Map // key: index file path, value: *IndexInfo
 	indexInfoChan    chan *IndexInfo
@@ -101,11 +102,12 @@ type DentryInfo struct {
 	dcache *cache.DentryCache
 }
 
-func NewPrefetchManager(ec *ExtentClient, volName, mountPoint string, prefetchThreads int64) *PrefetchManager {
+func NewPrefetchManager(ec *ExtentClient, volName, mountPoint string, rootIno uint64, prefetchThreads int64) *PrefetchManager {
 	InitReadBlockPool()
 	pManager := &PrefetchManager{
 		volName:       volName,
 		mountPoint:    mountPoint,
+		rootIno: 	   rootIno,
 		ec:            ec,
 		closeC:        make(chan struct{}, 1),
 		indexInfoChan: make(chan *IndexInfo, 1024),
@@ -425,7 +427,7 @@ func (pManager *PrefetchManager) getDirInfo(path string) (parIno uint64, dcache 
 	if log.EnableDebug() {
 		log.LogDebugf("getDirInfo enter: cfs path(%v)", path)
 	}
-	parIno, err = pManager.ec.lookupPath(path)
+	parIno, err = pManager.ec.lookupPath(pManager.rootIno, path)
 	if err != nil {
 		return
 	}
@@ -732,7 +734,7 @@ func (pManager *PrefetchManager) LookupPathByCache(absPath string) (uint64, erro
 	if !strings.HasPrefix(absPath, pManager.mountPoint) {
 		return 0, fmt.Errorf("not cfs path")
 	}
-	ino := proto.RootIno
+	ino := pManager.rootIno
 	subDir := strings.Replace(absPath, pManager.mountPoint, "", 1)
 	if subDir == "" || subDir == "/" {
 		return 0, fmt.Errorf("not cfs file")
