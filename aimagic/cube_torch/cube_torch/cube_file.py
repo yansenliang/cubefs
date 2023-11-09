@@ -122,6 +122,7 @@ class InterceptionIO:
                 stream = self.get_stream(file_path)
                 if stream:
                     result = cv2.imdecode(np.frombuffer(stream.content, np.uint8), **kwargs)
+                    stream.close()
                     del stream
                     return result
             result = builtins_cv2_imread(*args, **kwargs)
