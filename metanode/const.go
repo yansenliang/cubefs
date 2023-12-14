@@ -230,6 +230,8 @@ const (
 
 	metaNodeDeleteBatchCountKey = "batchCount"
 	configNameResolveInterval   = "nameResolveInterval" // int
+
+	cfgRocksDirs                = "rocksDirs"
 )
 
 const (
@@ -242,6 +244,8 @@ const (
 	defaultQuotaSwitch           = true
 	DefaultNameResolveInterval   = 1 // minutes
 	DefaultRaftNumOfLogsToRetain = 20000 * 2
+
+	maximumApplyIdDifference = 1000
 )
 
 const (

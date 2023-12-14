@@ -333,14 +333,15 @@ func (m *metadataManager) opMetaLinkInode(conn net.Conn, p *Packet,
 // Handle OpCreate
 func (m *metadataManager) opFreeInodeOnRaftFollower(conn net.Conn, p *Packet,
 	remoteAddr string) (err error) {
-	mp, err := m.getPartition(p.PartitionID)
+	_, err = m.getPartition(p.PartitionID)
 	if err != nil {
 		p.PacketErrorWithBody(proto.OpErr, ([]byte)(err.Error()))
 		m.respondToClientWithVer(conn, p)
 		err = errors.NewErrorf("[%v],err[%v]", p.GetOpMsgWithReqAndResult(), string(p.Data))
 		return
 	}
-	mp.(*metaPartition).internalDelete(p.Data[:p.Size])
+
+	//todo: del interface
 	p.PacketOkReply()
 	m.respondToClientWithVer(conn, p)
 

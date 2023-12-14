@@ -3244,6 +3244,8 @@ func (c *Cluster) doCreateVol(req *createVolReq) (vol *Vol, err error) {
 		FlowWlimit:   req.qosLimitArgs.flowWVal,
 
 		DpReadOnlyWhenVolFull: req.DpReadOnlyWhenVolFull,
+		DefaultStoreMode:  req.storeMode,
+		MpLayout:          req.layout,
 	}
 
 	log.LogInfof("[doCreateVol] volView, %v", vv)

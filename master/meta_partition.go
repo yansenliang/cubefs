@@ -44,6 +44,7 @@ type MetaReplica struct {
 	ReportTime  int64
 	Status      int8 // unavailable, readOnly, readWrite
 	IsLeader    bool
+	StoreMode   proto.StoreMode
 	metaNode    *MetaNode
 }
 

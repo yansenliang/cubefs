@@ -76,6 +76,8 @@ type MetaNode struct {
 	clusterUuidEnable         bool
 	serviceIDKey              string
 
+	rocksDirs                 []string
+
 	control common.Control
 }
 
@@ -286,6 +288,12 @@ func (m *MetaNode) parseConfig(cfg *config.Config) (err error) {
 	}
 	syslog.Println("conf raftSyncSnapFormatVersion=", m.raftSyncSnapFormatVersion)
 	log.LogInfof("[parseConfig] raftSyncSnapFormatVersion[%v]", m.raftSyncSnapFormatVersion)
+
+	m.rocksDirs = cfg.GetStringSlice(cfgRocksDirs)
+	if len(m.rocksDirs) == 0 {
+		log.LogInfof("conf do not have rocks db dir, now use meta data dir")
+		m.rocksDirs = append(m.rocksDirs, m.metadataDir)
+	}
 
 	constCfg := config.ConstConfig{
 		Listen:           m.listen,

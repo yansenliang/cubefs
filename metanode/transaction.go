@@ -1358,29 +1358,30 @@ func (tr *TransactionResource) addTxRollbackDentry(rbDentry *TxRollbackDentry) (
 	return proto.OpOk
 }
 
-func (tr *TransactionResource) rollbackInodeInternal(rbInode *TxRollbackInode) (status uint8, err error) {
+func (tr *TransactionResource) rollbackInodeInternal(dbHandle interface{}, rbInode *TxRollbackInode) (status uint8, err error) {
 	status = proto.OpOk
 	mp := tr.txProcessor.mp
 	switch rbInode.rbType {
 	case TxAdd:
 		var ino *Inode
-		item := mp.inodeTree.CopyGet(rbInode.inode)
-		if item != nil {
-			ino = item.(*Inode)
+		ino, err = mp.inodeTree.Get(rbInode.inode.Inode)
+		if err != nil {
+			return
 		}
 
-		if item == nil || ino.IsTempFile() || ino.ShouldDelete() {
+
+		if ino == nil || ino.IsTempFile() || ino.ShouldDelete() {
 			mp.freeList.Remove(rbInode.inode.Inode)
 			if mp.uidManager != nil {
 				mp.uidManager.addUidSpace(rbInode.inode.Uid, rbInode.inode.Inode, rbInode.inode.Extents.eks)
 			}
-			if mp.mqMgr != nil && len(rbInode.quotaIds) > 0 && item == nil {
-				mp.setInodeQuota(rbInode.quotaIds, rbInode.inode.Inode)
+			if mp.mqMgr != nil && len(rbInode.quotaIds) > 0 && ino == nil {
+				mp.setInodeQuota(dbHandle, rbInode.quotaIds, rbInode.inode.Inode)
 				for _, quotaId := range rbInode.quotaIds {
 					mp.mqMgr.updateUsedInfo(int64(rbInode.inode.Size), 1, quotaId)
 				}
 			}
-			mp.inodeTree.ReplaceOrInsert(rbInode.inode, true)
+			_, _, err = mp.inodeTree.Create(dbHandle, rbInode.inode, true)
 		} else {
 			ino.IncNLink(mp.verSeq)
 		}
@@ -1396,8 +1397,8 @@ func (tr *TransactionResource) rollbackInodeInternal(rbInode *TxRollbackInode) (
 					tr.txProcessor.mp.mqMgr.updateUsedInfo(-1*int64(rbInode.inode.Size), -1, quotaId)
 				}
 			}
-			tr.txProcessor.mp.fsmUnlinkInode(rbInode.inode, 0)
-			tr.txProcessor.mp.fsmEvictInode(rbInode.inode)
+			_, err = tr.txProcessor.mp.fsmUnlinkInode(dbHandle, rbInode.inode, 1, 0)
+			_, err = tr.txProcessor.mp.fsmEvictInode(dbHandle, rbInode.inode)
 		}
 
 	default:
@@ -1410,7 +1411,7 @@ func (tr *TransactionResource) rollbackInodeInternal(rbInode *TxRollbackInode) (
 }
 
 //RM roll back an inode, retry if error occours
-func (tr *TransactionResource) rollbackInode(req *proto.TxInodeApplyRequest) (status uint8, err error) {
+func (tr *TransactionResource) rollbackInode(dbHandle interface{}, req *proto.TxInodeApplyRequest) (status uint8, err error) {
 	tr.Lock()
 	defer tr.Unlock()
 	status = proto.OpOk
@@ -1431,7 +1432,7 @@ func (tr *TransactionResource) rollbackInode(req *proto.TxInodeApplyRequest) (st
 		return
 	}
 
-	status, err = tr.rollbackInodeInternal(rbInode)
+	status, err = tr.rollbackInodeInternal(dbHandle, rbInode)
 	if err != nil {
 		log.LogErrorf("rollbackInode: inode[%v] roll back failed in tx[%v], rbType[%v]", req.Inode, req.TxID, rbInode.rbType)
 	} else {
@@ -1441,7 +1442,7 @@ func (tr *TransactionResource) rollbackInode(req *proto.TxInodeApplyRequest) (st
 	return
 }
 
-func (tr *TransactionResource) rollbackDentryInternal(rbDentry *TxRollbackDentry) (status uint8, err error) {
+func (tr *TransactionResource) rollbackDentryInternal(dbHandle interface{}, rbDentry *TxRollbackDentry) (status uint8, err error) {
 	defer func() {
 		if status != proto.OpOk {
 			log.LogErrorf("rollbackDentryInternal: rollback dentry failed, ifo %v", rbDentry.txDentryInfo)
@@ -1451,12 +1452,12 @@ func (tr *TransactionResource) rollbackDentryInternal(rbDentry *TxRollbackDentry
 	switch rbDentry.rbType {
 	case TxAdd:
 		// need to be true to assert link not change.
-		status = tr.txProcessor.mp.fsmCreateDentry(rbDentry.dentry, true)
+		status, err = tr.txProcessor.mp.fsmCreateDentry(dbHandle, rbDentry.dentry, true)
 	case TxDelete:
-		resp := tr.txProcessor.mp.fsmDeleteDentry(rbDentry.dentry, true)
+		resp, _ := tr.txProcessor.mp.fsmDeleteDentry(dbHandle, rbDentry.dentry, true)
 		status = resp.Status
 	case TxUpdate:
-		resp := tr.txProcessor.mp.fsmUpdateDentry(rbDentry.dentry)
+		resp,_ := tr.txProcessor.mp.fsmUpdateDentry(dbHandle, rbDentry.dentry)
 		status = resp.Status
 	default:
 		status = proto.OpTxRollbackUnknownRbType
@@ -1469,7 +1470,7 @@ func (tr *TransactionResource) rollbackDentryInternal(rbDentry *TxRollbackDentry
 }
 
 //RM roll back a dentry, retry if error occours
-func (tr *TransactionResource) rollbackDentry(req *proto.TxDentryApplyRequest) (status uint8, err error) {
+func (tr *TransactionResource) rollbackDentry(dbHandle interface{}, req *proto.TxDentryApplyRequest) (status uint8, err error) {
 	tr.Lock()
 	defer tr.Unlock()
 	status = proto.OpOk
@@ -1491,7 +1492,7 @@ func (tr *TransactionResource) rollbackDentry(req *proto.TxDentryApplyRequest) (
 		return
 	}
 
-	status, err = tr.rollbackDentryInternal(rbDentry)
+	status, err = tr.rollbackDentryInternal(dbHandle, rbDentry)
 	if err != nil {
 		log.LogErrorf("rollbackDentry: denKey[%v] roll back failed in tx[%v], rbType[%v]",
 			rbDentry.txDentryInfo.GetKey(), req.TxID, rbDentry.rbType)
@@ -1531,7 +1532,7 @@ func (tr *TransactionResource) commitInode(txID string, inode uint64) (status ui
 }
 
 //RM simplely remove the dentry from TransactionResource
-func (tr *TransactionResource) commitDentry(txID string, pId uint64, name string) (status uint8, err error) {
+func (tr *TransactionResource) commitDentry(dbHandle interface{}, txID string, pId uint64, name string) (status uint8, err error) {
 	tr.Lock()
 	defer tr.Unlock()
 	status = proto.OpOk
@@ -1557,7 +1558,7 @@ func (tr *TransactionResource) commitDentry(txID string, pId uint64, name string
 	// unlink parent inode
 	if rbDentry.rbType == TxAdd {
 		parInode := NewInode(pId, 0)
-		st := tr.txProcessor.mp.fsmUnlinkInode(parInode, 0)
+		st, _ := tr.txProcessor.mp.fsmUnlinkInode(dbHandle, parInode, 1, 0)
 		if st.Status != proto.OpOk {
 			log.LogWarnf("commitDentry: try unlink parent inode failed, txId %s, inode %v", txID, parInode)
 			return

@@ -196,7 +196,7 @@ func (m *MetaNode) getAllInodesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var inode *Inode
 
-	f := func(i BtreeItem) bool {
+	f := func(i interface{}) (bool, error) {
 		var (
 			data []byte
 			e    error
@@ -205,28 +205,35 @@ func (m *MetaNode) getAllInodesHandler(w http.ResponseWriter, r *http.Request) {
 		if inode != nil {
 			if _, e = w.Write([]byte("\n")); e != nil {
 				log.LogErrorf("[getAllInodesHandler] failed to write response: %v", e)
-				return false
+				return false, e
 			}
 		}
 
 		inode, _ = i.(*Inode).getInoByVer(verSeq, false)
 		if inode == nil {
-			return true
+			return true, e
 		}
 		if data, e = inode.MarshalToJSON(); e != nil {
 			log.LogErrorf("[getAllInodesHandler] failed to marshal to json: %v", e)
-			return false
+			return false, e
 		}
 
 		if _, e = w.Write(data); e != nil {
 			log.LogErrorf("[getAllInodesHandler] failed to write response: %v", e)
-			return false
+			return false, e
 		}
 
-		return true
+		return true, nil
 	}
 
-	mp.GetInodeTree().Ascend(f)
+	snap := NewSnapshot(mp.(*metaPartition))
+	if snap == nil {
+		err = fmt.Errorf("can not get mp[%d] snap shot", mp.GetBaseConfig().PartitionId)
+		return
+	}
+	defer snap.Close()
+
+	err = snap.Range(InodeType ,f)
 }
 
 func (m *MetaNode) getSplitKeyHandler(w http.ResponseWriter, r *http.Request) {
@@ -620,6 +627,14 @@ func (m *MetaNode) getAllDentriesHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	snap := NewSnapshot(mp.(*metaPartition))
+	if snap == nil {
+		resp.Code = http.StatusInternalServerError
+		resp.Msg = fmt.Sprintf("Can not get mp[%d] snap shot", mp.GetBaseConfig().PartitionId)
+		return
+	}
+	defer snap.Close()
+
 	buff := bytes.NewBufferString(`{"code": 200, "msg": "OK", "data":[`)
 	if _, err := w.Write(buff.Bytes()); err != nil {
 		return
@@ -631,15 +646,15 @@ func (m *MetaNode) getAllDentriesHandler(w http.ResponseWriter, r *http.Request)
 		isFirst   = true
 	)
 
-	mp.GetDentryTree().Ascend(func(i BtreeItem) bool {
+	err = snap.Range(DentryType, func(i interface{}) (bool, error) {
 		den, _ := i.(*Dentry).getDentryFromVerList(verSeq)
 		if den == nil || den.isDeleted() {
-			return true
+			return true, nil
 		}
 
 		if !isFirst {
 			if _, err = w.Write(delimiter); err != nil {
-				return false
+				return false, nil
 			}
 		} else {
 			isFirst = false
@@ -648,12 +663,12 @@ func (m *MetaNode) getAllDentriesHandler(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
-			return false
+			return false, nil
 		}
 		if _, err = w.Write(val); err != nil {
-			return false
+			return false, nil
 		}
-		return true
+		return true, nil
 	})
 	shouldSkip = true
 	buff.WriteString(`]}`)

@@ -676,6 +676,8 @@ type createVolReq struct {
 	clientReqPeriod, clientHitTriggerCnt uint32
 	// cold vol args
 	coldArgs coldVolArgs
+	storeMode                            proto.StoreMode
+	layout								 proto.MetaPartitionLayout
 }
 
 func checkCacheAction(action int) error {
