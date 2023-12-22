@@ -232,6 +232,7 @@ const (
 	configNameResolveInterval   = "nameResolveInterval" // int
 
 	cfgRocksDirs                = "rocksDirs"
+	cfgDiskReservedSpace        = "diskReservedSpace"
 )
 
 const (
@@ -246,6 +247,7 @@ const (
 	DefaultRaftNumOfLogsToRetain = 20000 * 2
 
 	maximumApplyIdDifference = 1000
+	defaultDiskReservedSpace              = 5 *GB
 )
 
 const (

@@ -128,6 +128,7 @@ func (m *metadataManager) opMasterHeartbeat(conn net.Conn, p *Packet,
 				FreeListLen:      uint64(partition.GetFreeListLen()),
 				UidInfo:          partition.GetUidInfo(),
 				QuotaReportInfos: partition.getQuotaReportInfos(),
+				StoreMode:         mConf.StoreMode,
 			}
 			mpr.TxCnt, mpr.TxRbInoCnt, mpr.TxRbDenCnt = partition.TxGetCnt()
 
@@ -148,6 +149,7 @@ func (m *metadataManager) opMasterHeartbeat(conn net.Conn, p *Packet,
 			return true
 		})
 		resp.ZoneName = m.zoneName
+		resp.RocksDBDiskInfo = m.metaNode.getRocksDBDiskStat()
 		resp.Status = proto.TaskSucceeds
 	end:
 		adminTask.Request = nil

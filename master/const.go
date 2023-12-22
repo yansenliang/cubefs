@@ -40,6 +40,7 @@ const (
 	volTypeKey            = "volType"
 	cacheRuleKey          = "cacheRuleKey"
 	emptyCacheRuleKey     = "emptyCacheRule"
+	stateKey              = "state"
 
 	dataNodesetSelectorKey = "dataNodesetSelector"
 	metaNodesetSelectorKey = "metaNodesetSelector"
@@ -131,6 +132,8 @@ const (
 	Periodic                   = "periodic"
 	DecommissionType           = "decommissionType"
 	decommissionDiskFactor     = "decommissionDiskFactor"
+	volMetaLayoutKey                    = "metaLayout"
+	StoreModeKey                        = "storeMode"
 )
 
 const (
@@ -201,6 +204,8 @@ const (
 	defaultClientTriggerHitCnt                   = 1
 	defaultClientReqPeriodSeconds                = 1
 	defaultMaxQuotaNumPerVol                     = 100
+	defaultRocksdbDiskUsageThreshold                 float32 = 0.6
+	defaultMemModeRocksdbDiskUsageThreshold          float32 = 0.8
 )
 
 const (

@@ -45,6 +45,7 @@ type MetaNodeInfo struct {
 	PersistenceMetaPartitions []uint64
 	RdOnly                    bool
 	CpuUtil                   float64 `json:"cpuUtil"`
+	ProfPort                  string
 }
 
 // DataNode stores all the information about a data node
@@ -93,6 +94,8 @@ type MetaPartitionInfo struct {
 	MissNodes     map[string]int64
 	LoadResponse  []*MetaPartitionLoadResponse
 	Forbidden     bool
+	MemStoreCnt       uint8
+	RcokStoreCnt      uint8
 }
 
 // MetaReplica defines the replica of a meta partition
@@ -106,6 +109,7 @@ type MetaReplicaInfo struct {
 	InodeCount  uint64
 	MaxInode    uint64
 	DentryCount uint64
+	StoreMode   StoreMode
 }
 
 // ClusterView provides the view of a cluster.

@@ -15,6 +15,7 @@
 package metanode
 
 import (
+	"github.com/cubefs/cubefs/util/diskmon"
 	syslog "log"
 	"os"
 	"strings"
@@ -79,6 +80,9 @@ type MetaNode struct {
 	rocksDirs                 []string
 
 	control common.Control
+	diskStopCh        chan struct{}
+	disks             map[string]*diskmon.FsCapMon
+	diskReservedSpace uint64
 }
 
 // Start starts up the meta node with the specified configuration.
@@ -136,6 +140,9 @@ func doStart(s common.Server, cfg *config.Config) (err error) {
 		return errors.New("Invalid node Type!")
 	}
 	if err = m.parseConfig(cfg); err != nil {
+		return
+	}
+	if err = m.startDiskStat(); err != nil {
 		return
 	}
 	if err = m.register(); err != nil {
@@ -293,6 +300,10 @@ func (m *MetaNode) parseConfig(cfg *config.Config) (err error) {
 	if len(m.rocksDirs) == 0 {
 		log.LogInfof("conf do not have rocks db dir, now use meta data dir")
 		m.rocksDirs = append(m.rocksDirs, m.metadataDir)
+	}
+	m.diskReservedSpace, _ = strconv.ParseUint(cfg.GetString(cfgDiskReservedSpace), 10, 64)
+	if m.diskReservedSpace == 0 || m.diskReservedSpace < defaultDiskReservedSpace {
+		m.diskReservedSpace = defaultDiskReservedSpace
 	}
 
 	constCfg := config.ConstConfig{

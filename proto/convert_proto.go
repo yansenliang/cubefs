@@ -30,10 +30,9 @@ const (
 
 const (
 	MPGetDetailInfo MPConvertState = iota
-	MPSelectLearner
-	MPAddLearner
-	MPWaitLearnerSync
-	MPPromteLearner
+	MPSelectMetaNode
+	MPAddReplic
+	MPWaitsync
 	MPWaitStable
 	MPDelReplica
 	MPWaitInterval
@@ -184,14 +183,12 @@ func (state *MPConvertState) Str() string {
 	switch *state {
 	case MPGetDetailInfo:
 		return "GetDetailInfo"
-	case MPSelectLearner:
-		return "SelectLearner"
-	case MPAddLearner:
-		return "AddLearner"
-	case MPWaitLearnerSync:
-		return "WaitLearnerSync"
-	case MPPromteLearner:
-		return "PromteLearner"
+	case MPSelectMetaNode:
+		return "SelectMetaNode"
+	case MPAddReplic:
+		return "AddReplica"
+	case MPWaitsync:
+		return "WaitSync"
 	case MPWaitStable:
 		return "WaitStable"
 	case MPDelReplica:

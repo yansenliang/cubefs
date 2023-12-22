@@ -46,6 +46,7 @@ const (
 	AdminVolExpand                            = "/vol/expand"
 	AdminVolForbidden                         = "/vol/forbidden"
 	AdminVolEnableAuditLog                    = "/vol/auditlog"
+	AdminSetVolConvertSt                      = "/vol/setConvertSate"
 	AdminCreateVol                            = "/admin/createVol"
 	AdminGetVol                               = "/admin/getVol"
 	AdminClusterFreeze                        = "/cluster/freeze"
@@ -168,7 +169,7 @@ const (
 	AdminAddMetaReplica                = "/metaReplica/add"
 	AdminDeleteMetaReplica             = "/metaReplica/delete"
 	AdminPutDataPartitions             = "/dataPartitions/set"
-
+	AdminSelectMetaReplicaNode         = "/metaReplica/selectNode"
 	//admin multi version snapshot
 	AdminCreateVersion     = "/multiVer/create"
 	AdminDelVersion        = "/multiVer/del"
@@ -633,6 +634,15 @@ type BadDiskStat struct {
 	DiskErrPartitionList []uint64
 }
 
+type MetaNodeDiskInfo struct {
+	Path       string
+	Total      uint64
+	Used       uint64
+	UsageRatio float64
+	Status     int8
+	MPCount    int
+}
+
 // DataNodeHeartbeatResponse defines the response to the data node heartbeat.
 type DataNodeHeartbeatResponse struct {
 	Total               uint64
@@ -671,6 +681,7 @@ type MetaPartitionReport struct {
 	FreeListLen      uint64
 	UidInfo          []*UidReportSpaceInfo
 	QuotaReportInfos []*QuotaReportInfo
+	StoreMode         StoreMode
 }
 
 // MetaNodeHeartbeatResponse defines the response to the meta node heartbeat request.
@@ -682,6 +693,7 @@ type MetaNodeHeartbeatResponse struct {
 	Status               uint8
 	Result               string
 	CpuUtil              float64 `json:"cpuUtil"`
+	RocksDBDiskInfo      []*MetaNodeDiskInfo
 }
 
 // LcNodeHeartbeatResponse defines the response to the lc node heartbeat.
@@ -809,6 +821,9 @@ type MetaPartitionView struct {
 	Members     []string
 	LeaderAddr  string
 	Status      int8
+	StoreMode   StoreMode
+	MemCount    uint8
+	RocksCount  uint8
 }
 
 type DataNodeDisksRequest struct {
@@ -1005,6 +1020,9 @@ type SimpleVolView struct {
 	LatestVer      uint64
 	Forbidden      bool
 	EnableAuditLog bool
+	DefaultStoreMode      StoreMode
+	ConvertState          VolConvertState
+	MpLayout              MetaPartitionLayout
 }
 
 type NodeSetInfo struct {

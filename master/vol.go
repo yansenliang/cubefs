@@ -49,6 +49,9 @@ type VolVarargs struct {
 	txConflictRetryNum      int64
 	txConflictRetryInterval int64
 	txOpLimit               int
+	convertState               proto.VolConvertState
+	DefaultStoreMode           proto.StoreMode
+	MpLayout                   proto.MetaPartitionLayout
 }
 
 // Vol represents a set of meta partitionMap and data partitionMap
@@ -725,7 +728,7 @@ func (mp *MetaPartition) memUsedReachThreshold(clusterName, volName string) bool
 	if !foundReadonlyReplica || readonlyReplica == nil {
 		return false
 	}
-	if readonlyReplica.metaNode.isWritable() {
+	if readonlyReplica.metaNode.isWritable(proto.StoreModeMem) {
 		msg := fmt.Sprintf("action[checkSplitMetaPartition] vol[%v],max meta parition[%v] status is readonly\n",
 			volName, mp.PartitionID)
 		Warn(clusterName, msg)
@@ -1405,7 +1408,7 @@ func (vol *Vol) doCreateMetaPartition(c *Cluster, start, end uint64) (mp *MetaPa
 			defer func() {
 				wg.Done()
 			}()
-			if err = c.syncCreateMetaPartitionToMetaNode(host, mp); err != nil {
+			if err = c.syncCreateMetaPartitionToMetaNode(host, mp, vol.DefaultStoreMode); err != nil {
 				errChannel <- err
 				return
 			}
@@ -1479,6 +1482,8 @@ func setVolFromArgs(args *VolVarargs, vol *Vol) {
 
 	vol.dpSelectorName = args.dpSelectorName
 	vol.dpSelectorParm = args.dpSelectorParm
+	vol.MpLayout = args.MpLayout
+	vol.DefaultStoreMode = args.DefaultStoreMode
 }
 
 func getVolVarargs(vol *Vol) *VolVarargs {
@@ -1514,6 +1519,8 @@ func getVolVarargs(vol *Vol) *VolVarargs {
 		txOpLimit:               vol.txOpLimit,
 		coldArgs:                args,
 		dpReadOnlyWhenVolFull:   vol.DpReadOnlyWhenVolFull,
+		DefaultStoreMode:        vol.DefaultStoreMode,
+		MpLayout: 				 vol.MpLayout,
 	}
 }
 

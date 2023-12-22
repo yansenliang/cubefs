@@ -606,7 +606,7 @@ func (mp *MetaPartition) replicaCreationTasks(clusterID, volName string) (tasks 
 	return
 }
 
-func (mp *MetaPartition) buildNewMetaPartitionTasks(specifyAddrs []string, peers []proto.Peer, volName string) (tasks []*proto.AdminTask) {
+func (mp *MetaPartition) buildNewMetaPartitionTasks(specifyAddrs []string, peers []proto.Peer, volName string, storeMode proto.StoreMode) (tasks []*proto.AdminTask) {
 	tasks = make([]*proto.AdminTask, 0)
 	hosts := make([]string, 0)
 
@@ -617,6 +617,7 @@ func (mp *MetaPartition) buildNewMetaPartitionTasks(specifyAddrs []string, peers
 		Members:     peers,
 		VolName:     volName,
 		VerSeq:      mp.VerSeq,
+		StoreMode:   storeMode,
 	}
 	if specifyAddrs == nil {
 		hosts = mp.Hosts
@@ -670,7 +671,7 @@ func (mp *MetaPartition) createTaskToTryToChangeLeader(addr string) (task *proto
 	return
 }
 
-func (mp *MetaPartition) createTaskToCreateReplica(host string) (t *proto.AdminTask, err error) {
+func (mp *MetaPartition) createTaskToCreateReplica(host string, storeMode proto.StoreMode) (t *proto.AdminTask, err error) {
 	req := &proto.CreateMetaPartitionRequest{
 		Start:       mp.Start,
 		End:         mp.End,
@@ -678,6 +679,7 @@ func (mp *MetaPartition) createTaskToCreateReplica(host string) (t *proto.AdminT
 		Members:     mp.Peers,
 		VolName:     mp.volName,
 		VerSeq:      mp.VerSeq,
+		StoreMode: storeMode,
 	}
 	t = proto.NewAdminTask(proto.OpCreateMetaPartition, host, req)
 	resetMetaPartitionTaskID(t, mp.PartitionID)
@@ -774,6 +776,7 @@ func (mr *MetaReplica) updateMetric(mgr *proto.MetaPartitionReport) {
 	if mr.metaNode.RdOnly && mr.Status == proto.ReadWrite {
 		mr.Status = proto.ReadOnly
 	}
+	mr.StoreMode = mgr.StoreMode
 }
 
 func (mp *MetaPartition) afterCreation(nodeAddr string, c *Cluster) (err error) {
